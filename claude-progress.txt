@@ -1,0 +1,84 @@
+# RoadGuard MVP — Claude Progress Log
+
+## Project Overview
+출퇴근 경로 기상 위험 알림 앱인토스 미니앱
+Seed: seed_886da26e8f95 | Ambiguity: 0.198
+
+---
+
+### Session 1 — 2026-04-09
+- F001: 프로젝트 초기화 완료
+  - granite.config.ts (displayName: "로드가드", primaryColor: #FF3B3B)
+  - index.html viewport user-scalable=no, title/og:title "로드가드" 통일
+  - SDK dynamic import 패턴 (src/lib/sdk.ts)
+  - Firebase 초기화 (src/lib/firebase.ts)
+  - Zustand GlobalStore (src/business/store/globalStore.ts)
+  - AuthService, RouteManager, HazardEvaluator, ResiliencyController
+  - functions/ 디렉토리 + package.json + tsconfig
+  - 의존성: zustand, gsap, firebase 설치
+
+- F002: 인증 + 인트로 화면 완료
+  - IntroView: 앱 소개 + "시작하기" CTA → appLogin()
+  - appLogin unlink callback → 로그아웃 처리
+  - App.tsx 라우팅: authState 기반 조건부 렌더링
+  - 웹 환경 mock userKey 자동 사용
+
+- F003: 온보딩 (경로 설정) 완료
+  - 3단계 폼: 출발지 → 도착지 → 알림 시간
+  - Kakao Places API 주소 검색 + 350ms debounce
+  - shadcn-ui Select 시간 피커 (05-12시, 10분 단위)
+  - Firestore 저장 + NodeMatcherBatch 트리거
+
+- F004: NodeMatcherBatch 완료
+  - onCall Cloud Function (firebase-functions v2)
+  - Kakao Directions → polyline decode → 1-2km 샘플링
+  - Kakao 역지오코딩 → 행정구역 추출 + 중복 제거
+  - ITS CCTV API → 경로 반경 CCTV 매핑
+  - exponential backoff 재시도 (최대 3회)
+
+- F005: WeatherCollectorBatch 완료
+  - onSchedule 10분 cron
+  - KMA 기상특보 API 파싱 (안개/대설/한파/결빙 등)
+  - Firestore weatherAlerts 배치 업데이트
+  - 이전 특보 해제 처리, API 장애 시 캐시 유지
+
+- F006: PushNotifier 완료
+  - onSchedule 1분 cron
+  - KST 기준 commuteTime + 30분 매칭 (±2분 여유)
+  - weatherAlerts 위험 판정 → 스마트 발송 API 호출
+  - 중복 발송 방지 (notificationLog 당일 체크)
+
+- F007: MapView 완료
+  - Kakao Maps SDK 동적 로드 + 무채색 스타일
+  - 경로 폴리라인 (안전: slate gray, 위험: neon red)
+  - GSAP Pulse 위험 마커 애니메이션
+  - HazardEvaluator 연동, ResiliencyController fallback
+
+- F008: BottomSheetViewer 완료
+  - vaul Drawer 기반 바텀시트 (60% 높이, 풀스크린 아님)
+  - CCTV 스냅샷 이미지 로드 + 로딩/에러 fallback
+  - 기상 정보 카드 (경보: 빨강, 주의보: 주황, 안전: 초록)
+  - GSAP stagger 애니메이션
+
+- F009: Mock 모드 전체 플로우 완료
+  - MOCK_MODE 자동 감지 (VITE_KAKAO_JS_KEY 없으면 활성화)
+  - MockMapView: CSS 기반 경로 시각화 (5개 CCTV 노드)
+  - kakaoSearch mock: 강남/판교 검색 결과
+  - OnboardingForm mock: Firestore/NodeMatcher 스킵
+  - CCTV 스냅샷: picsum.photos mock 이미지
+
+- Vercel 배포: https://roadguard-mvp.vercel.app
+
+- 토스 심사 규칙 검증 통과:
+  - ✅ alert/confirm/prompt 미사용
+  - ✅ user-scalable=no
+  - ✅ appLogin 사용자 액션 후 호출
+  - ✅ 자체 header/nav 없음
+  - ✅ 브랜딩 "로드가드" 통일
+  - ✅ navigationBar withBackButton/withHomeButton
+
+- 다음 작업: F010 통합 테스트 + 심사 준비
+  - /harness-validate 실행
+  - /appintoss-nongame-launch-checklist 실행
+  - Edge case 처리 (네트워크 단절, API 장애, 빈 경로)
+  - 기능 스킴 URL 등록 + 랜딩 확인

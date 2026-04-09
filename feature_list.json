@@ -1,0 +1,75 @@
+{
+  "project": "RoadGuard",
+  "features": [
+    {
+      "id": "F001",
+      "name": "프로젝트 초기화",
+      "phase": 0,
+      "description": "granite.config.ts, viewport, SDK 패턴, Firebase/Zustand 세팅",
+      "passes": true
+    },
+    {
+      "id": "F002",
+      "name": "인증 + 인트로 화면",
+      "phase": 1,
+      "description": "IntroView, appLogin 연동, 라우팅 (미인증/온보딩/완료)",
+      "passes": true
+    },
+    {
+      "id": "F003",
+      "name": "온보딩 (경로 설정)",
+      "phase": 2,
+      "description": "OnboardingForm 3단계, Kakao 주소검색, 시간선택, Firestore 저장",
+      "passes": true
+    },
+    {
+      "id": "F004",
+      "name": "NodeMatcherBatch",
+      "phase": 3,
+      "description": "경로→행정구역/CCTV 매핑 Cloud Function",
+      "passes": true
+    },
+    {
+      "id": "F005",
+      "name": "WeatherCollectorBatch",
+      "phase": 4,
+      "description": "KMA 기상특보 10분 수집 Cloud Function",
+      "passes": true
+    },
+    {
+      "id": "F006",
+      "name": "PushNotifier",
+      "phase": 5,
+      "description": "출근 30분 전 스마트 발송 Cloud Function",
+      "passes": true
+    },
+    {
+      "id": "F007",
+      "name": "MapView (메인 지도)",
+      "phase": 6,
+      "description": "Kakao Maps 지도, 위험구간 폴리라인, GSAP 마커 애니메이션",
+      "passes": true
+    },
+    {
+      "id": "F008",
+      "name": "BottomSheetViewer (CCTV)",
+      "phase": 7,
+      "description": "CCTV 스냅샷 바텀시트, 기상정보 카드, fallback UI",
+      "passes": true
+    },
+    {
+      "id": "F009",
+      "name": "Mock 모드 전체 플로우",
+      "phase": "extra",
+      "description": "API 키 없이 전체 플로우 체험 가능한 mock 데이터 모드",
+      "passes": true
+    },
+    {
+      "id": "F010",
+      "name": "통합 테스트 + 심사 준비",
+      "phase": 8,
+      "description": "E2E 테스트, harness-validate, launch-checklist, edge case",
+      "passes": false
+    }
+  ]
+}
