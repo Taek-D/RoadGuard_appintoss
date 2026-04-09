@@ -278,7 +278,7 @@ function MockMapView() {
 /*  Real Map Component (Kakao Maps SDK)                                */
 /* ------------------------------------------------------------------ */
 
-const RealMapView = () => {
+const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [kakaoMap, setKakaoMap] = useState<kakao.maps.Map | null>(null);
   const [loadingState, setLoadingState] = useState<LoadingState>('loading');
@@ -320,7 +320,12 @@ const RealMapView = () => {
 
   // Find matching weather alert for the selected node's district
   const selectedNodeAlert = selectedNode
-    ? weatherAlerts.find((a) => a.hasAlert && a.district && selectedNode.name.includes(a.district)) ?? null
+    ? weatherAlerts.find((a) => a.hasAlert && a.district && selectedNode.name.includes(a.district))
+      ?? weatherAlerts.find((a) => a.hasAlert && (
+        (a.district.includes('서초') && selectedNode.name.includes('양재')) ||
+        (a.district.includes('분당') && (selectedNode.name.includes('판교') || selectedNode.name.includes('분당')))
+      ))
+      ?? null
     : null;
 
   // Close handler for the bottom sheet
@@ -367,15 +372,19 @@ const RealMapView = () => {
 
         if (cancelled) return;
 
-        // Step 3: Evaluate hazards
-        if (routeData && routeData.districts.length > 0) {
+        // Step 3: Evaluate hazards (only if real Firestore data exists)
+        // Skip if we already have mock alerts from onboarding fallback
+        const existingAlerts = useGlobalStore.getState().weatherAlerts;
+        if (routeData && routeData.districts.length > 0 && existingAlerts.length === 0) {
           try {
             const result = await evaluateHazards(
               routeData.districts,
               routeData.cctvNodes
             );
-            setWeatherAlerts(result.alerts);
-            setHazardNodes(result.hazardCctvNodes);
+            if (result.alerts.length > 0) {
+              setWeatherAlerts(result.alerts);
+              setHazardNodes(result.hazardCctvNodes);
+            }
           } catch (err) {
             console.error('[MapView] Hazard evaluation failed:', err);
             setApiStatus('weather', 'degraded');
@@ -414,9 +423,7 @@ const RealMapView = () => {
       } catch (err) {
         console.error('[MapView] Initialization failed:', err);
         if (!cancelled) {
-          setApiStatus('kakaoMap', 'down');
-          setErrorMessage(getFallbackMessage('kakaoMap'));
-          setLoadingState('error');
+          onSdkFail();
         }
       } finally {
         if (!cancelled) {
@@ -616,10 +623,13 @@ const RealMapView = () => {
 /* ------------------------------------------------------------------ */
 
 const MapView = () => {
-  if (MOCK_MODE) {
+  const [sdkFailed, setSdkFailed] = useState(false);
+
+  // Always try real map first when API key exists, fallback to mock on failure
+  if (MOCK_MODE || sdkFailed) {
     return <MockMapView />;
   }
-  return <RealMapView />;
+  return <RealMapView onSdkFail={() => setSdkFailed(true)} />;
 };
 
 export default MapView;

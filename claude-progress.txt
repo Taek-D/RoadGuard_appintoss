@@ -77,8 +77,23 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
   - ✅ 브랜딩 "로드가드" 통일
   - ✅ navigationBar withBackButton/withHomeButton
 
+- 배포 후 버그픽스:
+  - OnboardingForm: updateDoc → setDoc({merge:true}) + 5초 타임아웃 + mock fallback
+  - MapView: SDK 로드 실패 시 MockMapView 자동 전환 (onSdkFail)
+  - MapView: mock 기상특보 데이터 보존 (Firestore 빈 결과로 덮어쓰기 방지)
+  - RoutePolyline: 'MOCK' polyline → MOCK_ROUTE_COORDS로 직접 그리기
+  - BottomSheetViewer: max-h-[85vh] + X 닫기 버튼 추가
+
+- API 키 발급 현황:
+  - ✅ Kakao (JS + REST) — .env 입력 완료, 도메인 등록 완료
+  - ✅ Firebase (Firestore) — holdem-ranking 프로젝트에 추가, .env 입력 완료
+  - ✅ KMA 기상특보 — 공공데이터포털, .env 입력 완료
+  - ⏳ ITS CCTV — 승인 대기 중
+
 - 다음 작업: F010 통합 테스트 + 심사 준비
   - /harness-validate 실행
   - /appintoss-nongame-launch-checklist 실행
   - Edge case 처리 (네트워크 단절, API 장애, 빈 경로)
   - 기능 스킴 URL 등록 + 랜딩 확인
+  - Firebase Cloud Functions 배포 (Blaze 업그레이드 필요)
+  - ITS CCTV 키 승인 후 .env 추가

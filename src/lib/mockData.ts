@@ -15,8 +15,21 @@ export const MOCK_SEARCH_RESULTS: Record<string, Array<{ place_name: string; add
   ],
 };
 
+// Coordinates for drawing route line (강남역→양재IC→판교JC→분당내곡→판교역)
+export const MOCK_ROUTE_COORDS = [
+  { lat: 37.498095, lng: 127.028361 },
+  { lat: 37.491000, lng: 127.030500 },
+  { lat: 37.483021, lng: 127.034715 },
+  { lat: 37.470000, lng: 127.043000 },
+  { lat: 37.452344, lng: 127.056789 },
+  { lat: 37.438000, lng: 127.070000 },
+  { lat: 37.420156, lng: 127.089012 },
+  { lat: 37.408000, lng: 127.098000 },
+  { lat: 37.394879, lng: 127.111439 },
+];
+
 export const MOCK_ROUTE: RouteData = {
-  polyline: '',
+  polyline: 'MOCK',
   districts: ['서울특별시 강남구', '서울특별시 서초구', '경기도 성남시 분당구'],
   cctvNodes: [
     { id: 'cctv-001', lat: 37.498095, lng: 127.028361, name: '강남대로 강남역 부근', cctvurl: 'https://picsum.photos/seed/cctv1/640/360' },

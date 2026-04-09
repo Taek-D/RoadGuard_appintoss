@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { decodePolyline } from '@/lib/kakaoMap';
+import { MOCK_ROUTE_COORDS } from '@/lib/mockData';
 import type { WeatherAlert } from '@/business/store/globalStore';
 
 interface UseRoutePolylineOptions {
@@ -42,7 +43,10 @@ export function useRoutePolyline({
     polylinesRef.current.forEach((pl) => pl.setMap(null));
     polylinesRef.current = [];
 
-    const points = decodePolyline(encodedPolyline);
+    // Use mock coordinates if polyline is 'MOCK', otherwise decode
+    const points = encodedPolyline === 'MOCK'
+      ? MOCK_ROUTE_COORDS
+      : decodePolyline(encodedPolyline);
     if (points.length < 2) return;
 
     const path = points.map(

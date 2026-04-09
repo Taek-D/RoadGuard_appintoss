@@ -65,9 +65,19 @@ const BottomSheetViewer = ({ node, alert, isOpen, onClose }: BottomSheetViewerPr
         if (!open) onClose();
       }}
     >
-      <DrawerContent className="bg-zinc-900 border-zinc-700 rounded-t-2xl">
-        <DrawerHeader className="pb-2">
-          <DrawerTitle className="text-white text-base font-semibold text-left">
+      <DrawerContent className="bg-zinc-900 border-zinc-700 rounded-t-2xl max-h-[85vh]">
+        <DrawerHeader className="pb-2 relative">
+          <button
+            type="button"
+            className="absolute right-4 top-3 p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            onClick={onClose}
+            aria-label="닫기"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <DrawerTitle className="text-white text-base font-semibold text-left pr-10">
             {node.name}
           </DrawerTitle>
           <DrawerDescription className="text-zinc-400 text-xs text-left">
@@ -75,7 +85,7 @@ const BottomSheetViewer = ({ node, alert, isOpen, onClose }: BottomSheetViewerPr
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="px-4 pb-6 space-y-4 overflow-y-auto">
+        <div className="px-4 pb-8 space-y-4 overflow-y-auto">
           {/* CCTV Snapshot */}
           <div ref={snapshotRef}>
             <CctvSnapshot url={node.cctvurl} name={node.name} />
