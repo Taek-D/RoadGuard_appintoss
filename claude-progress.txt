@@ -90,10 +90,26 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
   - ✅ KMA 기상특보 — 공공데이터포털, .env 입력 완료
   - ⏳ ITS CCTV — 승인 대기 중
 
-- 다음 작업: F010 통합 테스트 + 심사 준비
-  - /harness-validate 실행
+### Session 2 — 2026-04-10
+- F010 진행 1: ITS CCTV API 연동 + 런타임 업그레이드
+  - ✅ ITS API 키 발급 완료 → .env 및 Firebase Secrets 등록
+  - ✅ ITS API 스펙 수정 (공식 문서 대조):
+    - key → apiKey
+    - ReqType: 2 제거, cctvType: 2 (스냅샷) 추가
+    - MinX/MaxX/MinY/MaxY → 소문자
+    - getType: 'json' 추가 (기본 XML 파싱 실패 방지)
+  - ✅ Firebase Secrets 등록 (version 2):
+    - ITS_API_KEY, KAKAO_REST_KEY, KMA_API_KEY
+  - ✅ pushNotifier/weatherCollectorBatch에 secrets 선언 추가
+  - ✅ Node 20 → 22 업그레이드 (firebase.json runtime + package.json engines)
+  - ✅ firebase-functions ^5 → ^7.2.5 (Node 20 EOL 대응)
+  - ✅ firebase-admin ^12 → ^13.8.0
+  - ✅ Breaking changes 영향 없음 (이미 v2 API 사용 중)
+  - ✅ Firebase Functions 재배포: nodeMatcherBatch, weatherCollectorBatch, pushNotifier (all Node.js 22, 2nd Gen)
+
+- 다음 작업: F010 나머지
+  - /harness-validate — NEVER/ALWAYS 규칙 위반 자동 탐지
   - /appintoss-nongame-launch-checklist 실행
   - Edge case 처리 (네트워크 단절, API 장애, 빈 경로)
+  - 실 경로로 NodeMatcherBatch E2E 테스트 (Firestore routes.cctvNodes 확인)
   - 기능 스킴 URL 등록 + 랜딩 확인
-  - Firebase Cloud Functions 배포 (Blaze 업그레이드 필요)
-  - ITS CCTV 키 승인 후 .env 추가
