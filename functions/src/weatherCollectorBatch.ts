@@ -94,6 +94,7 @@ function regionToDocId(region: string): string {
 export const weatherCollectorBatch = onSchedule(
   {
     schedule: 'every 10 minutes',
+    secrets: ['KMA_API_KEY'],
     timeoutSeconds: 120,
     memory: '256MiB',
   },

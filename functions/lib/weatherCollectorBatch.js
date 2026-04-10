@@ -107,6 +107,7 @@ function regionToDocId(region) {
 // ---------------------------------------------------------------------------
 exports.weatherCollectorBatch = (0, scheduler_1.onSchedule)({
     schedule: 'every 10 minutes',
+    secrets: ['KMA_API_KEY'],
     timeoutSeconds: 120,
     memory: '256MiB',
 }, async () => {

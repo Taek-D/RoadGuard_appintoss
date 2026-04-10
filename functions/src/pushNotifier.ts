@@ -106,6 +106,7 @@ export const pushNotifier = onSchedule(
     schedule: 'every 1 minutes',
     timeoutSeconds: 120,
     memory: '256MiB',
+    secrets: ['KAKAO_REST_KEY'],
   },
   async () => {
     const currentKST = getKSTTimeString();
