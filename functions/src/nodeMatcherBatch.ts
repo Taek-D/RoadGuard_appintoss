@@ -141,7 +141,7 @@ export async function retryWithBackoff<T>(
 // ---------------------------------------------------------------------------
 
 export const nodeMatcherBatch = onCall(
-  { timeoutSeconds: 300, memory: '512MiB' },
+  { timeoutSeconds: 300, memory: '512MiB', secrets: ['KAKAO_REST_KEY', 'ITS_API_KEY'] },
   async (request) => {
     const userId: string | undefined = request.data?.userId;
     if (!userId) {
@@ -284,19 +284,20 @@ export const nodeMatcherBatch = onCall(
       const cctvRes: AxiosResponse = await retryWithBackoff(() =>
         axios.get('https://openapi.its.go.kr/api/NCCTVInfo', {
           params: {
-            key: ITS_KEY,
-            ReqType: 2,
-            MinX: minLng,
-            MaxX: maxLng,
-            MinY: minLat,
-            MaxY: maxLat,
-            type: 'its',
+            apiKey: ITS_KEY,
+            type: 'its',     // its: 국도, ex: 고속도로
+            cctvType: 2,     // 1: 실시간 스트리밍, 2: 스냅샷 이미지
+            minX: minLng,
+            maxX: maxLng,
+            minY: minLat,
+            maxY: maxLat,
+            getType: 'json',
           },
         }),
       );
 
       const data = cctvRes.data;
-      // Response may be XML-parsed object or JSON depending on ReqType
+      // ITS JSON response structure: { response: { data: [...] } }
       const items: any[] = data?.response?.data ?? data?.data ?? [];
       cctvNodes = items.map((item: any) => ({
         id: String(item.cctvid ?? item.id ?? ''),
