@@ -113,3 +113,36 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
   - Edge case 처리 (네트워크 단절, API 장애, 빈 경로)
   - 실 경로로 NodeMatcherBatch E2E 테스트 (Firestore routes.cctvNodes 확인)
   - 기능 스킴 URL 등록 + 랜딩 확인
+
+### Session 3 — 2026-04-11
+- F010 진행 2: /harness-validate 실행 + 고아 템플릿 파일 제거
+  - harness-validate 1차 스캔 결과:
+    - N1~N5 PASS (alert/header/auto-login/외부이동/설치유도 모두 깨끗)
+    - N2 FAIL: src/pages/Brainstorm.tsx:270 <header>, src/pages/Index.tsx:404 hamburger
+    - N6 PASS: src/lib/sdk.ts 완벽한 dynamic import + isSupported 패턴,
+      authService.ts의 '@apps-in-toss/web-framework'는 callSdkApi 문자열 인자,
+      granite.config.ts의 import type는 타입 전용 (런타임 erased)
+    - A1~A4 PASS (viewport user-scalable=no, navigationBar, 브랜딩 "로드가드" 통일, IntroView)
+    - C1~C3 N/A (광고/결제/공유 미구현)
+  - 위반 원인 분석:
+    - src/pages/Brainstorm.tsx, Index.tsx는 lovable.dev 스타터 템플릿 잔재
+    - App.tsx는 HomeRouter(IntroView/OnboardingForm/MapView) + NotFound만 사용
+    - 두 파일 어디에서도 import되지 않음 (완전 고아)
+    - Vite tree-shaking으로 번들에서 빠지지만 git 소스에 남아 심사자 혼선 유발 + 실수 라우트 등록 리스크
+  - 조치:
+    - ✅ src/pages/Brainstorm.tsx 삭제
+    - ✅ src/pages/Index.tsx 삭제
+    - ✅ README.md: "src/pages/Index.tsx 수정" → "src/App.tsx 라우팅 + src/presentation/views/" 로 가이드 업데이트
+    - ✅ npm run build 성공 (vite v6.4.1, 1923 modules, 7.17s)
+    - ✅ harness-validate 재검증: NEVER 0건, ALWAYS 4/4, 모든 규칙 통과
+  - 소프트 경고 (non-blocking):
+    - src/presentation/views/MapView.tsx:562 window.location.reload()
+      → 외부 이동 아닌 내부 리로드이므로 N4 규칙 위반 아님
+      → UX 개선 관점에서 post-launch에 React state reset으로 교체 고려
+
+- 다음 작업: F010 나머지
+  - /appintoss-nongame-launch-checklist 실행 (11단계 최종 검수)
+  - Edge case 처리 (네트워크 단절, API 장애, 빈 경로)
+  - 실 경로로 NodeMatcherBatch E2E 테스트 (Firestore routes.cctvNodes 확인)
+  - 기능 스킴 URL 등록 + 랜딩 확인
+  - MapView.tsx:562 reload 개선 (선택)

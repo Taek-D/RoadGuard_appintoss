@@ -202,7 +202,7 @@ npm run install:all && npm run dev
 
 ### Step 1: 보일러플레이트에서 시작
 
-이 템플릿을 클론하면 Vite + React + shadcn-ui가 즉시 동작한다. `src/pages/Index.tsx`를 수정하여 첫 화면을 만든다.
+이 템플릿을 클론하면 Vite + React + shadcn-ui가 즉시 동작한다. `src/App.tsx` 라우팅에서 홈 화면을 지정하고, `src/presentation/views/` 아래에 뷰 컴포넌트를 만든다.
 
 ### Step 2: SDK 기능 추가
 
