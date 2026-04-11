@@ -8,11 +8,6 @@ const config: GraniteConfig = {
   navigationBar: {
     withBackButton: true,
     withHomeButton: true,
-    initialAccessoryButton: {
-      id: 'settings',
-      title: 'Settings',
-      icon: { name: 'icon-setting-mono' },
-    },
   },
 };
 

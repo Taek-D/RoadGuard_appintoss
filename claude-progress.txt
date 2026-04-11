@@ -140,9 +140,39 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
       → 외부 이동 아닌 내부 리로드이므로 N4 규칙 위반 아님
       → UX 개선 관점에서 post-launch에 React state reset으로 교체 고려
 
-- 다음 작업: F010 나머지
-  - /appintoss-nongame-launch-checklist 실행 (11단계 최종 검수)
+- F010 진행 3: /appintoss-nongame-launch-checklist 1차 실행 + 반려 blocker 제거
+  - 11단계 중 코드 범위 자체 검증 완료
+    - 1단계 (접속/완결성): 코드 OK, 콘솔 의존 일부
+    - 2단계 (네비바): ❌ 액세서리 설정 버튼 핸들러 미구현 → 반려 blocker
+    - 3단계 (로그인): ✅ IntroView 사용자액션, unlink 콜백, 재로그인 플로우 OK
+          (서버 JWT 교환 패턴은 실서비스 전 과제, 현재 mock 수준에서 토큰 노출 없음)
+    - 4단계 (스킴/라우팅): 콘솔 의존
+    - 5단계 (UI/UX): ✅ max-h-[85vh] + 닫기 X, overflow-hidden, 핀치줌 차단, toast/Drawer
+    - 6단계 (브랜딩): ✅ "로드가드" 통일 (displayName, title, og:title, primaryColor #FF3B3B)
+    - 7/8/11단계: N/A (결제/광고/공유 기능 없음)
+    - 9단계 (외부 링크): ✅ 내부 완결, 설치 유도 0건
+    - 10단계 (TDS): 미사용 (반려 사유 아님)
+  - 반려 blocker 수정: 액세서리 버튼 제거
+    - granite.config.ts: initialAccessoryButton 블록 완전 제거
+    - 이유: 'settings' 버튼이 정의만 있고 클릭 핸들러/useNavigationBar 훅이 없어
+      누르면 아무 동작 안 함 → "주요 기능 버튼 정상 동작" 규칙 위반
+    - MVP 스펙상 설정 화면 불필요하므로 제거가 가장 안전
+    - 필요 시 추후 useNavigationBar + SettingsView로 재도입 가능
+  - 고아 asset 3개 정리 (Brainstorm/Index.tsx 삭제의 후속 작업):
+    - ✅ src/assets/crimson-phantom.png 삭제
+    - ✅ src/assets/hero-bg-shape.png 삭제
+    - ✅ src/assets/logo.png 삭제 (118×113 — 콘솔 업로드 로고와 무관한 소스 자산)
+    - src/assets 디렉토리 현재 비어있음, @/assets 참조 0건
+  - 빌드 검증: vite 6.4.1 green (1923 modules, 3.00s)
+    - 번들 크기 동일 (903KB) — 고아 asset은 원래도 tree-shaking으로 제외되어 있었음
+
+- 향후 남은 작업 (우선순위 순):
+  - ⚠️ 심사자 오해 가능성: OnboardingForm.tsx:402~424 chevron-left "이전 단계" 버튼
+        → 아이콘 교체 또는 텍스트 버튼으로 교체 (UX 결정 필요)
   - Edge case 처리 (네트워크 단절, API 장애, 빈 경로)
   - 실 경로로 NodeMatcherBatch E2E 테스트 (Firestore routes.cctvNodes 확인)
-  - 기능 스킴 URL 등록 + 랜딩 확인
-  - MapView.tsx:562 reload 개선 (선택)
+  - 앱인토스 콘솔: 기능 스킴 URL 등록 + 랜딩 렌더링 확인 (콘솔 + 실기기)
+  - 앱인토스 콘솔: 로고 600×600 각진 정사각형 PNG 업로드 (별도 준비 필요)
+  - 실기기: 최초 화면 백버튼 누르면 미니앱 종료되는지 확인
+  - 실서비스 전: Cloud Functions exchangeAuthCode 서버 JWT 교환 엔드포인트
+  - MapView.tsx:562 window.location.reload() → React state reset으로 개선 (선택)
