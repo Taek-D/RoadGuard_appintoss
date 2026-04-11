@@ -30,8 +30,8 @@ export async function searchAddress(
 
   const apiKey = import.meta.env.VITE_KAKAO_REST_KEY;
   if (!apiKey) {
-    console.warn('[kakaoSearch] VITE_KAKAO_REST_KEY is not set');
-    return [];
+    console.warn('[kakaoSearch] VITE_KAKAO_REST_KEY is not set, falling back to mock search');
+    return mockSearch(query);
   }
 
   const url = new URL('https://dapi.kakao.com/v2/local/search/keyword');

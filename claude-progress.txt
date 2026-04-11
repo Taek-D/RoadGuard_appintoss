@@ -180,11 +180,47 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
   - 빌드 검증: vite 6.4.1 green (1923 modules, 3.08s)
     - 번들 903.58KB → 903.37KB (SVG 경로 제거로 소폭 감소)
 
+- F010 진행 5: Edge case 처리 — 빈 데이터/설정 누락 시 UX 보강
+  - 현재 커버리지 분석 결과, 이미 처리된 edge case가 9건 이상 있어
+    (SDK 로드 실패 → MockMapView, MOCK_MODE 자동화, Firestore 5s 타임아웃,
+    NodeMatcher 5s 타임아웃, route/hazards fetch fallback, CCTV 이미지 onError,
+    empty districts 초기 리턴, home/work 미설정 → Seoul 중심, Weather API
+    degraded banner 등) 실제 gap은 3건만 확인됨.
+  - CLAUDE.md 원칙(right amount of complexity, no speculative abstractions)에
+    따라 반려 리스크 있는 3건만 수정. 네트워크 오프라인 감지는 별도 컴포넌트
+    필요하여 다음 세션 과제로 이월.
+  - 수정 1: MapView.tsx fetchRoute null 가드 (반려 blocker)
+    - 현상: Cloud Function이 아직 routeDoc 생성 전이거나 실패한 경우
+      fetchRoute가 null 반환 → silently 지나가서 빈 지도만 표시 (경로선/CCTV 없음)
+    - 위험: "앱 내 기능 완결성" 규칙 위반 가능성
+    - 수정: fetchRoute 후 !routeData || routeData.cctvNodes.length === 0 체크
+      → errorMessage "경로 정보를 아직 불러오지 못했습니다. 잠시 후 다시 시도하거나
+         설정을 다시 확인해주세요." + loadingState='error' + early return
+      → 기존 error overlay의 "다시 시도" 버튼으로 복구 경로 제공
+    - Step 3 hazards 평가는 이미 non-null 보장된 이후로 이동 (불필요한 null 체크 제거)
+  - 수정 2: kakaoSearch.ts REST_KEY 누락 시 mock fallback
+    - 현상: MOCK_MODE는 VITE_KAKAO_JS_KEY만 체크. JS_KEY 있고 REST_KEY만 빠진
+      상태에선 실 모드로 진입하지만 검색은 빈 배열만 반환 → 사용자는
+      "검색 결과 없음"으로 오해
+    - 수정: apiKey 없을 때 return [] → return mockSearch(query)
+    - 효과: 부분 설정 환경(JS_KEY만 있는 로컬 dev 등)에서도 온보딩 진행 가능
+  - 수정 3: CctvSnapshot.tsx 빈 URL 가드
+    - 현상: ITS API가 특정 CCTV 노드에 대해 cctvurl 빈 값을 반환하면
+      <img src=""> 로 브라우저 에러 유발
+    - 수정: hasValidUrl 체크 (url && url.trim().length > 0) → 빈 URL이면
+      status 초기값을 'error'로 설정하여 <img> 렌더 자체를 건너뛰고
+      fallback UI 즉시 표시
+    - 이 경우는 전체 CCTV API 장애가 아닌 특정 노드 데이터 결손이므로
+      setApiStatus('cctv', 'degraded')는 호출하지 않음 (정상 케이스)
+  - 빌드 검증: vite 6.4.1 green (1923 modules, 3.43s)
+    - 번들 903.37KB → 903.61KB (가드 로직 240 바이트 증가)
+    - TypeScript narrow 문제 없음 (early return으로 non-null 보장)
+
 - 향후 남은 작업 (우선순위 순):
-  - Edge case 처리 (네트워크 단절, API 장애, 빈 경로)
+  - 네트워크 오프라인 감지 + 통합 안내 (navigator.onLine + 이벤트 리스너)
   - 실 경로로 NodeMatcherBatch E2E 테스트 (Firestore routes.cctvNodes 확인)
   - 앱인토스 콘솔: 기능 스킴 URL 등록 + 랜딩 렌더링 확인 (콘솔 + 실기기)
   - 앱인토스 콘솔: 로고 600×600 각진 정사각형 PNG 업로드 (별도 준비 필요)
   - 실기기: 최초 화면 백버튼 누르면 미니앱 종료되는지 확인
   - 실서비스 전: Cloud Functions exchangeAuthCode 서버 JWT 교환 엔드포인트
-  - MapView.tsx:562 window.location.reload() → React state reset으로 개선 (선택)
+  - MapView.tsx window.location.reload() → React state reset으로 개선 (선택)

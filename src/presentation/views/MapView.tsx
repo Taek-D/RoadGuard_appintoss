@@ -372,10 +372,22 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
 
         if (cancelled) return;
 
+        // Empty route guard: Cloud Function may still be processing the route,
+        // or Firestore doc may not exist yet. Show a clear message instead of
+        // an empty map with no CCTV nodes.
+        if (!routeData || routeData.cctvNodes.length === 0) {
+          setErrorMessage(
+            '경로 정보를 아직 불러오지 못했습니다. 잠시 후 다시 시도하거나 설정을 다시 확인해주세요.',
+          );
+          setLoadingState('error');
+          setLoading(false);
+          return;
+        }
+
         // Step 3: Evaluate hazards (only if real Firestore data exists)
         // Skip if we already have mock alerts from onboarding fallback
         const existingAlerts = useGlobalStore.getState().weatherAlerts;
-        if (routeData && routeData.districts.length > 0 && existingAlerts.length === 0) {
+        if (routeData.districts.length > 0 && existingAlerts.length === 0) {
           try {
             const result = await evaluateHazards(
               routeData.districts,

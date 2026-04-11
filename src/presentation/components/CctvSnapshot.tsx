@@ -8,7 +8,12 @@ interface CctvSnapshotProps {
 }
 
 const CctvSnapshot = ({ url, name }: CctvSnapshotProps) => {
-  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  // Guard against empty CCTV URLs (can happen when ITS API returns a node
+  // without cctvurl). Skip the <img> entirely and show the fallback UI.
+  const hasValidUrl = typeof url === 'string' && url.trim().length > 0;
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>(
+    hasValidUrl ? 'loading' : 'error',
+  );
   const setApiStatus = useResiliencyStore((s) => s.setApiStatus);
 
   const handleLoad = useCallback(() => {
