@@ -4,6 +4,7 @@ import type { CctvNode } from '@/business/store/globalStore';
 import { fetchRoute } from '@/business/services/routeManager';
 import { evaluateHazards } from '@/business/services/hazardEvaluator';
 import { useResiliencyStore, getFallbackMessage } from '@/business/utils/resiliencyController';
+import { useNetworkStatus } from '@/business/hooks/useNetworkStatus';
 import { loadKakaoMapSdk, getMidpoint } from '@/lib/kakaoMap';
 import { MOCK_MODE, MOCK_ROUTE, MOCK_WEATHER_ALERTS, MOCK_HAZARD_NODES } from '@/lib/mockData';
 import HazardMarker from '@/presentation/components/HazardMarker';
@@ -298,6 +299,10 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
   const apiStatus = useResiliencyStore((s) => s.apiStatus);
   const setApiStatus = useResiliencyStore((s) => s.setApiStatus);
 
+  const isOnline = useNetworkStatus();
+  const [retryKey, setRetryKey] = useState(0);
+  const wasOfflineRef = useRef(false);
+
   // Determine which APIs are degraded
   const degradedApis = (Object.keys(apiStatus) as Array<keyof typeof apiStatus>).filter(
     (key) => apiStatus[key] !== 'ok'
@@ -341,6 +346,19 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
     async function init() {
       setLoading(true);
       setLoadingState('loading');
+
+      // Offline guard: bail out early with a clear message so we do not
+      // burn retries on unreachable endpoints. The banner at the top
+      // keeps the user informed, and the online-transition effect below
+      // will bump retryKey to retry automatically when connectivity returns.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setErrorMessage(
+          '인터넷 연결이 없습니다. 네트워크 상태를 확인해주세요. 연결이 복구되면 자동으로 다시 시도합니다.',
+        );
+        setLoadingState('error');
+        setLoading(false);
+        return;
+      }
 
       try {
         // Step 1: Load Kakao Maps SDK
@@ -450,7 +468,21 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.userId]);
+  }, [user?.userId, retryKey]);
+
+  // Offline → online transition: bump retryKey so the init effect re-runs
+  // and the user sees the map recover automatically after connectivity
+  // is restored (no manual "다시 시도" tap required).
+  useEffect(() => {
+    if (!isOnline) {
+      wasOfflineRef.current = true;
+      return;
+    }
+    if (wasOfflineRef.current) {
+      wasOfflineRef.current = false;
+      setRetryKey((k) => k + 1);
+    }
+  }, [isOnline]);
 
   // Handle window resize for map relayout
   useEffect(() => {
@@ -477,8 +509,24 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
 
       {/* Top status bar overlay */}
       <div className="absolute top-0 left-0 right-0 z-10">
-        {/* Fallback messages for degraded APIs */}
-        {degradedApis.length > 0 && (
+        {/* Offline banner: highest priority, masks degraded API noise */}
+        {!isOnline && (
+          <div
+            className="mx-3 mt-2 rounded-lg border border-red-500/40 bg-red-950/85 px-4 py-3 backdrop-blur-sm"
+            role="status"
+            aria-live="polite"
+          >
+            <p className="text-sm font-medium text-red-200">
+              {'\uD83D\uDCF6 인터넷 연결이 끊어졌습니다'}
+            </p>
+            <p className="mt-1 text-xs text-red-300/90 leading-relaxed">
+              네트워크 상태를 확인해주세요. 연결이 복구되면 지도와 기상 정보를 자동으로 다시 불러옵니다.
+            </p>
+          </div>
+        )}
+
+        {/* Fallback messages for degraded APIs (hidden while offline) */}
+        {isOnline && degradedApis.length > 0 && (
           <div className="mx-3 mt-2 rounded-lg bg-amber-900/80 px-4 py-2 backdrop-blur-sm">
             {degradedApis.map((key) => (
               <p key={key} className="text-xs text-amber-200 leading-relaxed">
@@ -568,13 +616,20 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
           <p className="text-sm text-slate-300 text-center leading-relaxed">
             {errorMessage || '지도를 불러올 수 없습니다.'}
           </p>
-          <button
-            type="button"
-            className="mt-4 px-5 py-2.5 rounded-lg bg-sky-600 text-white text-sm font-medium hover:bg-sky-500 active:bg-sky-700 transition-colors"
-            onClick={() => window.location.reload()}
-          >
-            다시 시도
-          </button>
+          {isOnline ? (
+            <button
+              type="button"
+              className="mt-4 px-5 py-2.5 rounded-lg bg-sky-600 text-white text-sm font-medium hover:bg-sky-500 active:bg-sky-700 transition-colors"
+              onClick={() => setRetryKey((k) => k + 1)}
+            >
+              다시 시도
+            </button>
+          ) : (
+            <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              연결 복구를 기다리는 중...
+            </div>
+          )}
         </div>
       )}
 

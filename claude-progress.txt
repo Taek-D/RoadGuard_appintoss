@@ -216,11 +216,46 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
     - 번들 903.37KB → 903.61KB (가드 로직 240 바이트 증가)
     - TypeScript narrow 문제 없음 (early return으로 non-null 보장)
 
+### Session 4 — 2026-04-11
+- F010 진행 6: 네트워크 오프라인 감지 + 자동 복구
+  - 신규 훅: src/business/hooks/useNetworkStatus.ts
+    - navigator.onLine 초기값 + online/offline 이벤트 구독
+    - SSR-safe (typeof navigator/window 가드)
+    - mount 시 navigator.onLine 재동기화 (초기 state 시점 차이 보정)
+  - MapView (RealMapView) 통합:
+    - 상단 상태 바에 오프라인 배너 추가 (기존 degraded API 배너 위)
+      - red-950/85 + border-red-500/40 + role="status" aria-live="polite"
+      - "인터넷 연결이 끊어졌습니다" + 자동 복구 안내
+      - 오프라인 중엔 degraded API 배너는 숨김 (노이즈 제거)
+    - init useEffect 진입 시 offline 가드:
+      - !navigator.onLine이면 errorMessage 설정 + loadingState='error' + early return
+      - 불필요한 Kakao SDK/Cloud Function/Firestore 호출 억제
+    - offline→online 전이 감지용 useEffect:
+      - wasOfflineRef로 전이만 감지 (online 유지 시 no-op)
+      - 전이 시 setRetryKey(k => k+1) → init useEffect 재실행
+    - error overlay 조건부 UI:
+      - isOnline: 기존 "다시 시도" 버튼 유지
+        - BUT onClick을 window.location.reload() → setRetryKey(k => k+1) 로 교체
+        - 이전 세션에서 선택 과제로 이월했던 "React state reset" 개선까지 동시 해결
+        - 전체 페이지 리로드 없이 useEffect만 재실행 → selectedNode 등 기타 상태 보존
+      - !isOnline: 버튼 숨기고 "연결 복구를 기다리는 중..." 안내 표시
+        - 오프라인 중 reload 누르면 오히려 빈 페이지 로드로 악화되는 문제 회피
+    - init useEffect deps: [user?.userId, retryKey] (retryKey 추가)
+  - MockMapView는 미적용:
+    - 네트워크 독립 (API 키 없어도 동작) → 오프라인 배너 불필요
+    - 혼란만 유발할 수 있음
+  - 빌드 검증: vite 6.4.1 green (1924 modules, 3.13s)
+    - 모듈 수 1923 → 1924 (+1, useNetworkStatus 훅)
+    - 번들 903.61KB → 905.02KB (+1.41KB, 배너 JSX + 훅 + 가드 로직)
+  - harness 규칙 체크:
+    - NEVER: alert/header/back/auto-login/외부이동/설치유도 추가 없음 ✅
+    - ALWAYS: viewport/navigationBar/브랜딩/IntroView 변경 없음 ✅
+    - SDK import 패턴 유지 ✅
+    - navigator.onLine은 Web API이므로 SDK 패턴 대상 아님
+
 - 향후 남은 작업 (우선순위 순):
-  - 네트워크 오프라인 감지 + 통합 안내 (navigator.onLine + 이벤트 리스너)
   - 실 경로로 NodeMatcherBatch E2E 테스트 (Firestore routes.cctvNodes 확인)
   - 앱인토스 콘솔: 기능 스킴 URL 등록 + 랜딩 렌더링 확인 (콘솔 + 실기기)
   - 앱인토스 콘솔: 로고 600×600 각진 정사각형 PNG 업로드 (별도 준비 필요)
   - 실기기: 최초 화면 백버튼 누르면 미니앱 종료되는지 확인
   - 실서비스 전: Cloud Functions exchangeAuthCode 서버 JWT 교환 엔드포인트
-  - MapView.tsx window.location.reload() → React state reset으로 개선 (선택)
