@@ -399,34 +399,26 @@ const OnboardingForm = () => {
     <div className="flex min-h-screen flex-col bg-white">
       {/* Top area with step indicator */}
       <div className="flex items-center justify-between px-6 pt-6 pb-2">
-        {/* Back button (only show on step > 0) */}
+        {/* Step back button — text label to avoid being mistaken for a native
+            back button by the reviewer. Form step navigation only, not history. */}
         <button
           type="button"
           className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-full transition-opacity',
-            step === 0 ? 'pointer-events-none opacity-0' : 'opacity-100',
+            'min-w-[3rem] text-left text-sm font-medium transition-opacity',
+            step === 0
+              ? 'pointer-events-none opacity-0'
+              : 'text-gray-500 opacity-100 hover:text-gray-700',
           )}
           onClick={handleBack}
           aria-label="이전 단계"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5 text-gray-600"
-          >
-            <path d="m15 18-6-6 6-6" />
-          </svg>
+          이전
         </button>
 
         <StepDots current={step} total={TOTAL_STEPS} />
 
-        {/* Spacer for alignment */}
-        <div className="h-8 w-8" />
+        {/* Spacer for alignment (matches button min-width) */}
+        <div className="min-w-[3rem]" />
       </div>
 
       {/* Step content with transition */}

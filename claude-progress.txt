@@ -166,9 +166,21 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
   - 빌드 검증: vite 6.4.1 green (1923 modules, 3.00s)
     - 번들 크기 동일 (903KB) — 고아 asset은 원래도 tree-shaking으로 제외되어 있었음
 
+- F010 진행 4: OnboardingForm chevron-left 버튼 → "이전" 텍스트 버튼 교체
+  - 이유: 기존 chevron-left SVG (path d="m15 18-6-6 6-6")가 iOS/Android
+    표준 네비게이션 백버튼 아이콘과 동일하여 심사자가 "자체 뒤로가기 UI"로
+    오해할 가능성 있음 (NEVER 규칙: 자체 백버튼 금지)
+    → 의미상은 폼 스텝 이동이지만 아이콘 형태만으로는 구분 불가
+  - 수정: OnboardingForm.tsx:400~431
+    - 원형 w-8 h-8 아이콘 버튼 → min-w-[3rem] 텍스트 "이전" 버튼
+    - SVG path 완전 제거, 텍스트 라벨로 의도 명확화
+    - aria-label="이전 단계" 유지 (접근성)
+    - 양쪽 spacer min-w-[3rem]로 StepDots 중앙 정렬 유지
+    - step 0일 땐 여전히 opacity-0 + pointer-events-none으로 감춰짐
+  - 빌드 검증: vite 6.4.1 green (1923 modules, 3.08s)
+    - 번들 903.58KB → 903.37KB (SVG 경로 제거로 소폭 감소)
+
 - 향후 남은 작업 (우선순위 순):
-  - ⚠️ 심사자 오해 가능성: OnboardingForm.tsx:402~424 chevron-left "이전 단계" 버튼
-        → 아이콘 교체 또는 텍스트 버튼으로 교체 (UX 결정 필요)
   - Edge case 처리 (네트워크 단절, API 장애, 빈 경로)
   - 실 경로로 NodeMatcherBatch E2E 테스트 (Firestore routes.cctvNodes 확인)
   - 앱인토스 콘솔: 기능 스킴 URL 등록 + 랜딩 렌더링 확인 (콘솔 + 실기기)
