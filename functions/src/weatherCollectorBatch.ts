@@ -114,8 +114,12 @@ export const weatherCollectorBatch = onSchedule(
     // ---------------------------------------------------------------------
     let items: any[] = [];
     try {
+      // Use getPwnStatus (특보현황조회) which returns the CURRENT active
+      // warnings. The previous endpoint getWthrWrnList is a historical
+      // query that requires fromTmFc/toTmFc date params — without them
+      // it always returns NO_DATA.
       const res = await axios.get(
-        'http://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList',
+        'http://apis.data.go.kr/1360000/WthrWrnInfoService/getPwnStatus',
         {
           params: {
             serviceKey: KMA_KEY,
@@ -150,6 +154,13 @@ export const weatherCollectorBatch = onSchedule(
     for (const item of items) {
       const title: string = item.t6 ?? item.title ?? '';
       const areaName: string = item.t7 ?? item.areaName ?? '';
+
+      // getPwnStatus returns "o 없음" / "o 없 음" when there are no
+      // active warnings. Skip these sentinel entries so we don't create
+      // bogus alerts for a region called "없음".
+      if (title.includes('없음') || areaName.includes('없음')) {
+        continue;
+      }
 
       const alertType = parseAlertType(title);
       const alertLevel = parseAlertLevel(title);
