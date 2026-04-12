@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { searchAddress, type KakaoPlace } from '@/lib/kakaoSearch';
-import { triggerNodeMatcher } from '@/business/services/routeManager';
+import { triggerNodeMatcher, fetchRoute } from '@/business/services/routeManager';
 import { useGlobalStore } from '@/business/store/globalStore';
 import { MOCK_MODE, MOCK_ROUTE, MOCK_WEATHER_ALERTS, MOCK_HAZARD_NODES } from '@/lib/mockData';
 import { Button } from '@/components/ui/button';
@@ -361,19 +361,35 @@ const OnboardingForm = () => {
         console.warn('[Onboarding] Firestore save failed/timed out:', err);
       }
 
-      // Try node matcher, fallback to mock route data
+      // Try node matcher (Cloud Function), then load the real route it just
+      // wrote to Firestore. If anything fails/times out, MapView will retry
+      // the recovery path itself, and we fall back to MOCK_ROUTE below.
       try {
         if (!MOCK_MODE) {
           await Promise.race([
             triggerNodeMatcher(user.userId),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
           ]);
+
+          // Read the route the Cloud Function just persisted so MapView can
+          // render real CCTV URLs instead of the MOCK_ROUTE fallback.
+          const realRoute = await Promise.race([
+            fetchRoute(user.userId),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+          ]);
+          if (realRoute && realRoute.cctvNodes.length > 0) {
+            setRoute(realRoute);
+            // Leave weatherAlerts/hazardNodes empty so MapView's
+            // evaluateHazards can populate them from the real districts.
+          }
         }
-      } catch {
-        console.warn('[Onboarding] NodeMatcher not available, using mock route data');
+      } catch (err) {
+        console.warn('[Onboarding] NodeMatcher unavailable, MapView will retry:', err);
       }
 
-      // Always set route data (mock if real data not available)
+      // Fallback only if we still have no route. MapView's MOCK-sentinel
+      // detection will later refetch and upgrade to real data when the
+      // Cloud Function finishes in the background.
       if (!useGlobalStore.getState().route) {
         setRoute(MOCK_ROUTE);
         setWeatherAlerts(MOCK_WEATHER_ALERTS);

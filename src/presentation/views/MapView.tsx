@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useGlobalStore } from '@/business/store/globalStore';
 import type { CctvNode } from '@/business/store/globalStore';
-import { fetchRoute } from '@/business/services/routeManager';
+import { fetchRoute, triggerNodeMatcher } from '@/business/services/routeManager';
 import { evaluateHazards } from '@/business/services/hazardEvaluator';
 import { useResiliencyStore, getFallbackMessage } from '@/business/utils/resiliencyController';
 import { useNetworkStatus } from '@/business/hooks/useNetworkStatus';
@@ -375,12 +375,38 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
           return;
         }
 
-        let routeData = route;
+        // Treat the MOCK sentinel as "no real route yet" so we refetch
+        // from Firestore and recover whenever the Cloud Function eventually
+        // finishes. Onboarding may have fallen back to MOCK due to a tight
+        // timeout even though the real data is already (or soon) in Firestore.
+        const isMockRoute = route?.polyline === 'MOCK';
+        let routeData = isMockRoute ? null : route;
+
         if (!routeData) {
           try {
             routeData = await fetchRoute(userId);
-            if (routeData) {
+
+            // If Firestore still has nothing, kick off the node matcher
+            // one more time and try again. This rescues cases where the
+            // initial Onboarding call was skipped or the Cloud Function
+            // is cold-starting for the first request.
+            if (!routeData) {
+              try {
+                await triggerNodeMatcher(userId);
+                routeData = await fetchRoute(userId);
+              } catch (triggerErr) {
+                console.warn('[MapView] nodeMatcher recovery failed:', triggerErr);
+              }
+            }
+
+            if (routeData && routeData.cctvNodes.length > 0) {
               setRoute(routeData);
+              // Clear any mock-era alerts so evaluateHazards runs against
+              // the real districts we just loaded.
+              if (isMockRoute) {
+                setWeatherAlerts([]);
+                setHazardNodes([]);
+              }
             }
           } catch (err) {
             console.error('[MapView] Route fetch failed:', err);
