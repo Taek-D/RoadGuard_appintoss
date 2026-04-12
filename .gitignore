@@ -36,3 +36,9 @@ dist-ssr
 docs/.bkit-memory.json
 docs/.pdca-status.json
 docs/.pdca-snapshots/
+
+# Local browser / MCP session artifacts
+.playwright-mcp/
+
+# Personal notes with potentially sensitive content
+● API 키 발급 가이드 (4개 서비스).txt
