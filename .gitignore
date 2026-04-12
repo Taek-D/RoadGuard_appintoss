@@ -22,3 +22,17 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.vercel
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Harness/tooling ephemeral state (local only)
+.omc/
+.bkit/
+.claude/settings.json
+docs/.bkit-memory.json
+docs/.pdca-status.json
+docs/.pdca-snapshots/
