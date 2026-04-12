@@ -351,11 +351,11 @@ export const nodeMatcherBatch = onRequest(
 
     const fetchCctvs = async (roadType: 'its' | 'ex'): Promise<CctvNode[]> => {
       const res: AxiosResponse = await retryWithBackoff(() =>
-        axios.get('https://openapi.its.go.kr/api/NCCTVInfo', {
+        axios.get('http://openapi.its.go.kr/api/NCCTVInfo', {
           params: {
             apiKey: ITS_KEY,
             type: roadType,
-            cctvType: 2, // 1: 실시간 스트리밍, 2: 스냅샷 이미지
+            cctvType: 3, // 1: HLS, 2: mp4, 3: 정지영상(스냅샷), 4: HLS(HTTPS), 5: mp4(HTTPS)
             minX: minLng,
             maxX: maxLng,
             minY: minLat,
