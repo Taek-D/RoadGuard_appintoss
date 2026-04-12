@@ -1,8 +1,12 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
 import axios from 'axios';
 
-const db = admin.firestore();
+// Target the named Firestore database "roadguard" (this project has no
+// (default) database, so admin.firestore() would bind to a non-existent
+// instance and every read/write would fail with gRPC NOT_FOUND).
+const db = getFirestore('roadguard');
 
 // ---------------------------------------------------------------------------
 // Types

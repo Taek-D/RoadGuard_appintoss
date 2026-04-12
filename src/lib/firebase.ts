@@ -11,8 +11,16 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:000000000000:web:000000000000',
 };
 
+// The holdem-ranking project uses a named Firestore database called
+// "roadguard" rather than the usual (default) database. Calling
+// getFirestore(app) without the second argument targets (default),
+// which does not exist in this project, so every read/write silently
+// times out and the app falls back to MOCK data. Always pass the
+// database name so reads/writes hit the real backing store.
+const FIRESTORE_DB_ID = 'roadguard';
+
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+export const db = getFirestore(app, FIRESTORE_DB_ID);
 export const functions = getFunctions(app, 'asia-northeast3');
 
 export default app;

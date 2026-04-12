@@ -39,8 +39,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.pushNotifier = void 0;
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const admin = __importStar(require("firebase-admin"));
+const firestore_1 = require("firebase-admin/firestore");
 const axios_1 = __importDefault(require("axios"));
-const db = admin.firestore();
+// Target the named Firestore database "roadguard" (this project has no
+// (default) database, so admin.firestore() would bind to a non-existent
+// instance and every read/write would fail with gRPC NOT_FOUND).
+const db = (0, firestore_1.getFirestore)('roadguard');
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------

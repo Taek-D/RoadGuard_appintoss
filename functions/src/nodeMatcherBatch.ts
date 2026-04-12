@@ -1,8 +1,13 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
 import axios, { AxiosResponse } from 'axios';
 
-const db = admin.firestore();
+// This project uses a named Firestore database ("roadguard") instead of
+// the usual (default). Calling admin.firestore() here would silently
+// bind to (default) — which does not exist — and every read returns
+// gRPC NOT_FOUND (status 5). Always bind explicitly to the named db.
+const db = getFirestore('roadguard');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,60 +145,115 @@ export async function retryWithBackoff<T>(
 // Main Cloud Function
 // ---------------------------------------------------------------------------
 
-export const nodeMatcherBatch = onCall(
-  { timeoutSeconds: 300, memory: '512MiB', secrets: ['KAKAO_REST_KEY', 'ITS_API_KEY'] },
-  async (request) => {
-    const userId: string | undefined = request.data?.userId;
-    if (!userId) {
-      throw new HttpsError('invalid-argument', 'userId is required');
-    }
+// Simple sentinel class so we can centralize error → HTTP status mapping
+// at the onRequest boundary. Using a custom error avoids depending on
+// HttpsError (which was tied to the removed onCall wrapper) while still
+// letting the main logic throw with a machine-readable code.
+class NodeMatcherError extends Error {
+  constructor(
+    public code:
+      | 'invalid-argument'
+      | 'failed-precondition'
+      | 'not-found'
+      | 'internal',
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
-    const KAKAO_KEY = process.env.KAKAO_REST_KEY;
-    const ITS_KEY = process.env.ITS_API_KEY;
-    if (!KAKAO_KEY) {
-      throw new HttpsError('failed-precondition', 'KAKAO_REST_KEY is not configured');
-    }
-    if (!ITS_KEY) {
-      throw new HttpsError('failed-precondition', 'ITS_API_KEY is not configured');
-    }
+// This app uses Toss appLogin for identity, not Firebase Auth, so the
+// client has no Firebase ID token. Cloud Functions v2 `onCall` requires
+// an authenticated caller at the HTTP layer (its `invoker` option only
+// applies to `onRequest`/`httpsTrigger`) and therefore rejected every
+// client request with HTTP 403 before the handler ever ran. Using
+// `onRequest` with `invoker: 'public'` + `cors: true` lets us accept
+// unauthenticated POSTs from the browser. The handler still validates
+// the `userId` in the body and reads the user's own document so
+// authorization is enforced at the data layer.
+//
+// Deployed to asia-northeast3 to match the client's `getFunctions`
+// region. A previous us-central1 deployment existed; it should be
+// deleted after this one lands.
+export const nodeMatcherBatch = onRequest(
+  {
+    region: 'asia-northeast3',
+    timeoutSeconds: 300,
+    memory: '512MiB',
+    secrets: ['KAKAO_REST_KEY', 'ITS_API_KEY'],
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        res.status(405).json({ error: 'method-not-allowed' });
+        return;
+      }
 
-    // -----------------------------------------------------------------------
-    // 1. Read user document
-    // -----------------------------------------------------------------------
-    const userSnap = await db.collection('users').doc(userId).get();
-    if (!userSnap.exists) {
-      throw new HttpsError('not-found', `User ${userId} not found`);
-    }
+      // Accept both raw `{ userId }` and httpsCallable-style `{ data: { userId } }`
+      // bodies so we can migrate callers incrementally.
+      const body = (req.body ?? {}) as any;
+      const userId: string | undefined = body.userId ?? body.data?.userId;
+      if (!userId) {
+        throw new NodeMatcherError('invalid-argument', 'userId is required');
+      }
 
-    const userData = userSnap.data()!;
-    const home: LatLng | undefined = userData.home;
-    const work: LatLng | undefined = userData.work;
-    if (!home || !work) {
-      throw new HttpsError(
-        'failed-precondition',
-        'User must have both home and work coordinates',
+      const KAKAO_KEY = process.env.KAKAO_REST_KEY;
+      const ITS_KEY = process.env.ITS_API_KEY;
+      if (!KAKAO_KEY) {
+        throw new NodeMatcherError(
+          'failed-precondition',
+          'KAKAO_REST_KEY is not configured',
+        );
+      }
+      if (!ITS_KEY) {
+        throw new NodeMatcherError(
+          'failed-precondition',
+          'ITS_API_KEY is not configured',
+        );
+      }
+
+      // -----------------------------------------------------------------------
+      // 1. Read user document
+      // -----------------------------------------------------------------------
+      const userSnap = await db.collection('users').doc(userId).get();
+      if (!userSnap.exists) {
+        throw new NodeMatcherError('not-found', `User ${userId} not found`);
+      }
+
+      const userData = userSnap.data()!;
+      const home: LatLng | undefined = userData.home;
+      const work: LatLng | undefined = userData.work;
+      if (!home || !work) {
+        throw new NodeMatcherError(
+          'failed-precondition',
+          'User must have both home and work coordinates',
+        );
+      }
+
+      // -----------------------------------------------------------------------
+      // 2. Call Kakao Directions API (origin/destination are lng,lat)
+      // -----------------------------------------------------------------------
+      const directionsUrl = `https://apis-navi.kakaomobility.com/v1/directions`;
+      const directionsRes: AxiosResponse = await retryWithBackoff(() =>
+        axios.get(directionsUrl, {
+          params: {
+            origin: `${home.lng},${home.lat}`,
+            destination: `${work.lng},${work.lat}`,
+          },
+          headers: { Authorization: `KakaoAK ${KAKAO_KEY}` },
+        }),
       );
-    }
 
-    // -----------------------------------------------------------------------
-    // 2. Call Kakao Directions API (origin/destination are lng,lat)
-    // -----------------------------------------------------------------------
-    const directionsUrl = `https://apis-navi.kakaomobility.com/v1/directions`;
-    const directionsRes: AxiosResponse = await retryWithBackoff(() =>
-      axios.get(directionsUrl, {
-        params: {
-          origin: `${home.lng},${home.lat}`,
-          destination: `${work.lng},${work.lat}`,
-        },
-        headers: { Authorization: `KakaoAK ${KAKAO_KEY}` },
-      }),
-    );
-
-    // Extract the overview polyline from the first route
-    const routes = directionsRes.data?.routes;
-    if (!routes || routes.length === 0) {
-      throw new HttpsError('internal', 'No route found from Kakao Directions API');
-    }
+      // Extract the overview polyline from the first route
+      const routes = directionsRes.data?.routes;
+      if (!routes || routes.length === 0) {
+        throw new NodeMatcherError(
+          'internal',
+          'No route found from Kakao Directions API',
+        );
+      }
 
     // Kakao Directions rarely returns an encoded overview_polyline; most
     // responses contain `sections[].roads[].vertexes` as flat [lng, lat, ...]
@@ -220,9 +280,9 @@ export const nodeMatcherBatch = onCall(
       }
     }
 
-    if (routePoints.length === 0) {
-      throw new HttpsError('internal', 'Could not extract route points');
-    }
+      if (routePoints.length === 0) {
+        throw new NodeMatcherError('internal', 'Could not extract route points');
+      }
 
     // -----------------------------------------------------------------------
     // 3. Sample points every ~1.5 km
@@ -358,10 +418,32 @@ export const nodeMatcherBatch = onCall(
       `[NodeMatcher] Saved route for user ${userId}: ${districts.length} districts, ${cctvNodes.length} CCTVs`,
     );
 
-    return {
-      success: true,
-      districts,
-      cctvCount: cctvNodes.length,
-    };
+      res.json({
+        success: true,
+        districts,
+        cctvCount: cctvNodes.length,
+      });
+    } catch (err) {
+      // Map NodeMatcherError.code to an HTTP status so the client can
+      // distinguish genuine failures from recoverable "not ready yet"
+      // states. Anything else becomes a 500.
+      if (err instanceof NodeMatcherError) {
+        const statusMap = {
+          'invalid-argument': 400,
+          'failed-precondition': 412,
+          'not-found': 404,
+          internal: 500,
+        } as const;
+        const status = statusMap[err.code] ?? 500;
+        console.warn(`[NodeMatcher] ${err.code}: ${err.message}`);
+        res.status(status).json({ error: err.code, message: err.message });
+        return;
+      }
+      console.error('[NodeMatcher] Unhandled error:', err);
+      res.status(500).json({
+        error: 'internal',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   },
 );

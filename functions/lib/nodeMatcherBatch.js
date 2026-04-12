@@ -42,8 +42,13 @@ exports.samplePoints = samplePoints;
 exports.retryWithBackoff = retryWithBackoff;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
+const firestore_1 = require("firebase-admin/firestore");
 const axios_1 = __importDefault(require("axios"));
-const db = admin.firestore();
+// This project uses a named Firestore database ("roadguard") instead of
+// the usual (default). Calling admin.firestore() here would silently
+// bind to (default) — which does not exist — and every read returns
+// gRPC NOT_FOUND (status 5). Always bind explicitly to the named db.
+const db = (0, firestore_1.getFirestore)('roadguard');
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -141,193 +146,254 @@ async function retryWithBackoff(fn, maxRetries = 3) {
 // ---------------------------------------------------------------------------
 // Main Cloud Function
 // ---------------------------------------------------------------------------
-exports.nodeMatcherBatch = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '512MiB', secrets: ['KAKAO_REST_KEY', 'ITS_API_KEY'] }, async (request) => {
-    const userId = request.data?.userId;
-    if (!userId) {
-        throw new https_1.HttpsError('invalid-argument', 'userId is required');
+// Simple sentinel class so we can centralize error → HTTP status mapping
+// at the onRequest boundary. Using a custom error avoids depending on
+// HttpsError (which was tied to the removed onCall wrapper) while still
+// letting the main logic throw with a machine-readable code.
+class NodeMatcherError extends Error {
+    constructor(code, message) {
+        super(message);
+        this.code = code;
     }
-    const KAKAO_KEY = process.env.KAKAO_REST_KEY;
-    const ITS_KEY = process.env.ITS_API_KEY;
-    if (!KAKAO_KEY) {
-        throw new https_1.HttpsError('failed-precondition', 'KAKAO_REST_KEY is not configured');
-    }
-    if (!ITS_KEY) {
-        throw new https_1.HttpsError('failed-precondition', 'ITS_API_KEY is not configured');
-    }
-    // -----------------------------------------------------------------------
-    // 1. Read user document
-    // -----------------------------------------------------------------------
-    const userSnap = await db.collection('users').doc(userId).get();
-    if (!userSnap.exists) {
-        throw new https_1.HttpsError('not-found', `User ${userId} not found`);
-    }
-    const userData = userSnap.data();
-    const home = userData.home;
-    const work = userData.work;
-    if (!home || !work) {
-        throw new https_1.HttpsError('failed-precondition', 'User must have both home and work coordinates');
-    }
-    // -----------------------------------------------------------------------
-    // 2. Call Kakao Directions API (origin/destination are lng,lat)
-    // -----------------------------------------------------------------------
-    const directionsUrl = `https://apis-navi.kakaomobility.com/v1/directions`;
-    const directionsRes = await retryWithBackoff(() => axios_1.default.get(directionsUrl, {
-        params: {
-            origin: `${home.lng},${home.lat}`,
-            destination: `${work.lng},${work.lat}`,
-        },
-        headers: { Authorization: `KakaoAK ${KAKAO_KEY}` },
-    }));
-    // Extract the overview polyline from the first route
-    const routes = directionsRes.data?.routes;
-    if (!routes || routes.length === 0) {
-        throw new https_1.HttpsError('internal', 'No route found from Kakao Directions API');
-    }
-    // Kakao Directions rarely returns an encoded overview_polyline; most
-    // responses contain `sections[].roads[].vertexes` as flat [lng, lat, ...]
-    // pairs. We handle the polyline branch here but normally fall through
-    // to the vertexes reconstruction below.
-    const overviewPolyline = routes[0]?.overview_polyline?.points;
-    // Kakao may return vertexes as flat array [lng, lat, lng, lat, ...]
-    // Build points from sections if encoded polyline is not available
-    let routePoints;
-    if (overviewPolyline) {
-        routePoints = decodePolyline(overviewPolyline);
-    }
-    else {
-        // Fallback: collect vertexes from all roads in all sections
-        routePoints = [];
-        for (const section of routes[0].sections ?? []) {
-            for (const road of section.roads ?? []) {
-                const v = road.vertexes ?? [];
-                for (let i = 0; i < v.length; i += 2) {
-                    routePoints.push({ lat: v[i + 1], lng: v[i] });
-                }
-            }
+}
+// This app uses Toss appLogin for identity, not Firebase Auth, so the
+// client has no Firebase ID token. Cloud Functions v2 `onCall` requires
+// an authenticated caller at the HTTP layer (its `invoker` option only
+// applies to `onRequest`/`httpsTrigger`) and therefore rejected every
+// client request with HTTP 403 before the handler ever ran. Using
+// `onRequest` with `invoker: 'public'` + `cors: true` lets us accept
+// unauthenticated POSTs from the browser. The handler still validates
+// the `userId` in the body and reads the user's own document so
+// authorization is enforced at the data layer.
+//
+// Deployed to asia-northeast3 to match the client's `getFunctions`
+// region. A previous us-central1 deployment existed; it should be
+// deleted after this one lands.
+exports.nodeMatcherBatch = (0, https_1.onRequest)({
+    region: 'asia-northeast3',
+    timeoutSeconds: 300,
+    memory: '512MiB',
+    secrets: ['KAKAO_REST_KEY', 'ITS_API_KEY'],
+    cors: true,
+    invoker: 'public',
+}, async (req, res) => {
+    try {
+        if (req.method !== 'POST') {
+            res.status(405).json({ error: 'method-not-allowed' });
+            return;
         }
-    }
-    if (routePoints.length === 0) {
-        throw new https_1.HttpsError('internal', 'Could not extract route points');
-    }
-    // -----------------------------------------------------------------------
-    // 3. Sample points every ~1.5 km
-    // -----------------------------------------------------------------------
-    const sampled = samplePoints(routePoints, 1.5);
-    // -----------------------------------------------------------------------
-    // 4. Reverse geocode each sample point to get districts
-    // -----------------------------------------------------------------------
-    const districtSet = new Set();
-    for (const pt of sampled) {
-        try {
-            const geoRes = await retryWithBackoff(() => axios_1.default.get('https://dapi.kakao.com/v2/local/geo/coord2regioncode', {
-                params: { x: pt.lng, y: pt.lat },
-                headers: { Authorization: `KakaoAK ${KAKAO_KEY}` },
-            }));
-            const documents = geoRes.data?.documents ?? [];
-            for (const doc of documents) {
-                if (doc.region_1depth_name && doc.region_2depth_name) {
-                    districtSet.add(`${doc.region_1depth_name} ${doc.region_2depth_name}`);
-                }
-            }
+        // Accept both raw `{ userId }` and httpsCallable-style `{ data: { userId } }`
+        // bodies so we can migrate callers incrementally.
+        const body = (req.body ?? {});
+        const userId = body.userId ?? body.data?.userId;
+        if (!userId) {
+            throw new NodeMatcherError('invalid-argument', 'userId is required');
         }
-        catch (err) {
-            console.warn(`[NodeMatcher] Reverse geocode failed for (${pt.lat}, ${pt.lng}):`, err);
-            // Continue with remaining points
+        const KAKAO_KEY = process.env.KAKAO_REST_KEY;
+        const ITS_KEY = process.env.ITS_API_KEY;
+        if (!KAKAO_KEY) {
+            throw new NodeMatcherError('failed-precondition', 'KAKAO_REST_KEY is not configured');
         }
-    }
-    const districts = Array.from(districtSet);
-    // -----------------------------------------------------------------------
-    // 5. Find nearby CCTVs via ITS API
-    // -----------------------------------------------------------------------
-    // Compute bounding box from route points
-    let minLat = Infinity;
-    let maxLat = -Infinity;
-    let minLng = Infinity;
-    let maxLng = -Infinity;
-    for (const pt of routePoints) {
-        if (pt.lat < minLat)
-            minLat = pt.lat;
-        if (pt.lat > maxLat)
-            maxLat = pt.lat;
-        if (pt.lng < minLng)
-            minLng = pt.lng;
-        if (pt.lng > maxLng)
-            maxLng = pt.lng;
-    }
-    // Add a small margin (~500m)
-    const margin = 0.005;
-    minLat -= margin;
-    maxLat += margin;
-    minLng -= margin;
-    maxLng += margin;
-    // ITS API returns CCTVs filtered by road type. We query BOTH 'its'
-    // (국도) AND 'ex' (고속도로) and merge the results, otherwise commute
-    // routes that run primarily on highways (e.g. 강남→판교 via 경부고속도로)
-    // return an empty cctvNodes list.
-    const seenCctvIds = new Set();
-    let cctvNodes = [];
-    const fetchCctvs = async (roadType) => {
-        const res = await retryWithBackoff(() => axios_1.default.get('https://openapi.its.go.kr/api/NCCTVInfo', {
+        if (!ITS_KEY) {
+            throw new NodeMatcherError('failed-precondition', 'ITS_API_KEY is not configured');
+        }
+        // -----------------------------------------------------------------------
+        // 1. Read user document
+        // -----------------------------------------------------------------------
+        const userSnap = await db.collection('users').doc(userId).get();
+        if (!userSnap.exists) {
+            throw new NodeMatcherError('not-found', `User ${userId} not found`);
+        }
+        const userData = userSnap.data();
+        const home = userData.home;
+        const work = userData.work;
+        if (!home || !work) {
+            throw new NodeMatcherError('failed-precondition', 'User must have both home and work coordinates');
+        }
+        // -----------------------------------------------------------------------
+        // 2. Call Kakao Directions API (origin/destination are lng,lat)
+        // -----------------------------------------------------------------------
+        const directionsUrl = `https://apis-navi.kakaomobility.com/v1/directions`;
+        const directionsRes = await retryWithBackoff(() => axios_1.default.get(directionsUrl, {
             params: {
-                apiKey: ITS_KEY,
-                type: roadType,
-                cctvType: 2, // 1: 실시간 스트리밍, 2: 스냅샷 이미지
-                minX: minLng,
-                maxX: maxLng,
-                minY: minLat,
-                maxY: maxLat,
-                getType: 'json',
+                origin: `${home.lng},${home.lat}`,
+                destination: `${work.lng},${work.lat}`,
             },
+            headers: { Authorization: `KakaoAK ${KAKAO_KEY}` },
         }));
-        const data = res.data;
-        // ITS JSON response structure: { response: { data: [...] } }
-        const items = data?.response?.data ?? data?.data ?? [];
-        return items.map((item) => ({
-            id: String(item.cctvid ?? item.id ?? ''),
-            lat: Number(item.coordy ?? item.lat ?? 0),
-            lng: Number(item.coordx ?? item.lng ?? 0),
-            name: String(item.cctvname ?? item.name ?? ''),
-            cctvurl: String(item.cctvurl ?? ''),
-        }));
-    };
-    for (const roadType of ['its', 'ex']) {
-        try {
-            const nodes = await fetchCctvs(roadType);
-            for (const node of nodes) {
-                // Dedup across both queries; fall back to a coord-based key if
-                // ITS omits the cctvid so we still avoid exact duplicates.
-                const key = node.id && node.id !== 'undefined'
-                    ? node.id
-                    : `${node.lat.toFixed(5)},${node.lng.toFixed(5)}`;
-                if (seenCctvIds.has(key))
-                    continue;
-                seenCctvIds.add(key);
-                cctvNodes.push(node);
+        // Extract the overview polyline from the first route
+        const routes = directionsRes.data?.routes;
+        if (!routes || routes.length === 0) {
+            throw new NodeMatcherError('internal', 'No route found from Kakao Directions API');
+        }
+        // Kakao Directions rarely returns an encoded overview_polyline; most
+        // responses contain `sections[].roads[].vertexes` as flat [lng, lat, ...]
+        // pairs. We handle the polyline branch here but normally fall through
+        // to the vertexes reconstruction below.
+        const overviewPolyline = routes[0]?.overview_polyline?.points;
+        // Kakao may return vertexes as flat array [lng, lat, lng, lat, ...]
+        // Build points from sections if encoded polyline is not available
+        let routePoints;
+        if (overviewPolyline) {
+            routePoints = decodePolyline(overviewPolyline);
+        }
+        else {
+            // Fallback: collect vertexes from all roads in all sections
+            routePoints = [];
+            for (const section of routes[0].sections ?? []) {
+                for (const road of section.roads ?? []) {
+                    const v = road.vertexes ?? [];
+                    for (let i = 0; i < v.length; i += 2) {
+                        routePoints.push({ lat: v[i + 1], lng: v[i] });
+                    }
+                }
             }
         }
-        catch (err) {
-            console.warn(`[NodeMatcher] ITS CCTV API (${roadType}) failed:`, err);
-            // Continue with whatever we have; the other road type may still work
+        if (routePoints.length === 0) {
+            throw new NodeMatcherError('internal', 'Could not extract route points');
         }
+        // -----------------------------------------------------------------------
+        // 3. Sample points every ~1.5 km
+        // -----------------------------------------------------------------------
+        const sampled = samplePoints(routePoints, 1.5);
+        // -----------------------------------------------------------------------
+        // 4. Reverse geocode each sample point to get districts
+        // -----------------------------------------------------------------------
+        const districtSet = new Set();
+        for (const pt of sampled) {
+            try {
+                const geoRes = await retryWithBackoff(() => axios_1.default.get('https://dapi.kakao.com/v2/local/geo/coord2regioncode', {
+                    params: { x: pt.lng, y: pt.lat },
+                    headers: { Authorization: `KakaoAK ${KAKAO_KEY}` },
+                }));
+                const documents = geoRes.data?.documents ?? [];
+                for (const doc of documents) {
+                    if (doc.region_1depth_name && doc.region_2depth_name) {
+                        districtSet.add(`${doc.region_1depth_name} ${doc.region_2depth_name}`);
+                    }
+                }
+            }
+            catch (err) {
+                console.warn(`[NodeMatcher] Reverse geocode failed for (${pt.lat}, ${pt.lng}):`, err);
+                // Continue with remaining points
+            }
+        }
+        const districts = Array.from(districtSet);
+        // -----------------------------------------------------------------------
+        // 5. Find nearby CCTVs via ITS API
+        // -----------------------------------------------------------------------
+        // Compute bounding box from route points
+        let minLat = Infinity;
+        let maxLat = -Infinity;
+        let minLng = Infinity;
+        let maxLng = -Infinity;
+        for (const pt of routePoints) {
+            if (pt.lat < minLat)
+                minLat = pt.lat;
+            if (pt.lat > maxLat)
+                maxLat = pt.lat;
+            if (pt.lng < minLng)
+                minLng = pt.lng;
+            if (pt.lng > maxLng)
+                maxLng = pt.lng;
+        }
+        // Add a small margin (~500m)
+        const margin = 0.005;
+        minLat -= margin;
+        maxLat += margin;
+        minLng -= margin;
+        maxLng += margin;
+        // ITS API returns CCTVs filtered by road type. We query BOTH 'its'
+        // (국도) AND 'ex' (고속도로) and merge the results, otherwise commute
+        // routes that run primarily on highways (e.g. 강남→판교 via 경부고속도로)
+        // return an empty cctvNodes list.
+        const seenCctvIds = new Set();
+        let cctvNodes = [];
+        const fetchCctvs = async (roadType) => {
+            const res = await retryWithBackoff(() => axios_1.default.get('https://openapi.its.go.kr/api/NCCTVInfo', {
+                params: {
+                    apiKey: ITS_KEY,
+                    type: roadType,
+                    cctvType: 2, // 1: 실시간 스트리밍, 2: 스냅샷 이미지
+                    minX: minLng,
+                    maxX: maxLng,
+                    minY: minLat,
+                    maxY: maxLat,
+                    getType: 'json',
+                },
+            }));
+            const data = res.data;
+            // ITS JSON response structure: { response: { data: [...] } }
+            const items = data?.response?.data ?? data?.data ?? [];
+            return items.map((item) => ({
+                id: String(item.cctvid ?? item.id ?? ''),
+                lat: Number(item.coordy ?? item.lat ?? 0),
+                lng: Number(item.coordx ?? item.lng ?? 0),
+                name: String(item.cctvname ?? item.name ?? ''),
+                cctvurl: String(item.cctvurl ?? ''),
+            }));
+        };
+        for (const roadType of ['its', 'ex']) {
+            try {
+                const nodes = await fetchCctvs(roadType);
+                for (const node of nodes) {
+                    // Dedup across both queries; fall back to a coord-based key if
+                    // ITS omits the cctvid so we still avoid exact duplicates.
+                    const key = node.id && node.id !== 'undefined'
+                        ? node.id
+                        : `${node.lat.toFixed(5)},${node.lng.toFixed(5)}`;
+                    if (seenCctvIds.has(key))
+                        continue;
+                    seenCctvIds.add(key);
+                    cctvNodes.push(node);
+                }
+            }
+            catch (err) {
+                console.warn(`[NodeMatcher] ITS CCTV API (${roadType}) failed:`, err);
+                // Continue with whatever we have; the other road type may still work
+            }
+        }
+        console.log(`[NodeMatcher] CCTVs fetched: ${cctvNodes.length} (bbox: ${minLng},${minLat} → ${maxLng},${maxLat})`);
+        // -----------------------------------------------------------------------
+        // 6. Save to Firestore
+        // -----------------------------------------------------------------------
+        const polylineToStore = overviewPolyline ??
+            routePoints.map((p) => `${p.lng},${p.lat}`).join(';');
+        const routeDoc = {
+            polyline: polylineToStore,
+            districts,
+            cctvNodes,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        await db.collection('routes').doc(userId).set(routeDoc, { merge: true });
+        console.log(`[NodeMatcher] Saved route for user ${userId}: ${districts.length} districts, ${cctvNodes.length} CCTVs`);
+        res.json({
+            success: true,
+            districts,
+            cctvCount: cctvNodes.length,
+        });
     }
-    console.log(`[NodeMatcher] CCTVs fetched: ${cctvNodes.length} (bbox: ${minLng},${minLat} → ${maxLng},${maxLat})`);
-    // -----------------------------------------------------------------------
-    // 6. Save to Firestore
-    // -----------------------------------------------------------------------
-    const polylineToStore = overviewPolyline ??
-        routePoints.map((p) => `${p.lng},${p.lat}`).join(';');
-    const routeDoc = {
-        polyline: polylineToStore,
-        districts,
-        cctvNodes,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    await db.collection('routes').doc(userId).set(routeDoc, { merge: true });
-    console.log(`[NodeMatcher] Saved route for user ${userId}: ${districts.length} districts, ${cctvNodes.length} CCTVs`);
-    return {
-        success: true,
-        districts,
-        cctvCount: cctvNodes.length,
-    };
+    catch (err) {
+        // Map NodeMatcherError.code to an HTTP status so the client can
+        // distinguish genuine failures from recoverable "not ready yet"
+        // states. Anything else becomes a 500.
+        if (err instanceof NodeMatcherError) {
+            const statusMap = {
+                'invalid-argument': 400,
+                'failed-precondition': 412,
+                'not-found': 404,
+                internal: 500,
+            };
+            const status = statusMap[err.code] ?? 500;
+            console.warn(`[NodeMatcher] ${err.code}: ${err.message}`);
+            res.status(status).json({ error: err.code, message: err.message });
+            return;
+        }
+        console.error('[NodeMatcher] Unhandled error:', err);
+        res.status(500).json({
+            error: 'internal',
+            message: err instanceof Error ? err.message : String(err),
+        });
+    }
 });
 //# sourceMappingURL=nodeMatcherBatch.js.map
