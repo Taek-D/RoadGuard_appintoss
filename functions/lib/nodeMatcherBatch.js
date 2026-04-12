@@ -183,10 +183,11 @@ exports.nodeMatcherBatch = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '5
     if (!routes || routes.length === 0) {
         throw new https_1.HttpsError('internal', 'No route found from Kakao Directions API');
     }
-    const overviewPolyline = routes[0]?.overview_polyline?.points ??
-        routes[0]?.sections?.[0]?.roads?.[0]?.vertexes
-        ? undefined
-        : undefined;
+    // Kakao Directions rarely returns an encoded overview_polyline; most
+    // responses contain `sections[].roads[].vertexes` as flat [lng, lat, ...]
+    // pairs. We handle the polyline branch here but normally fall through
+    // to the vertexes reconstruction below.
+    const overviewPolyline = routes[0]?.overview_polyline?.points;
     // Kakao may return vertexes as flat array [lng, lat, lng, lat, ...]
     // Build points from sections if encoded polyline is not available
     let routePoints;
@@ -259,12 +260,17 @@ exports.nodeMatcherBatch = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '5
     maxLat += margin;
     minLng -= margin;
     maxLng += margin;
+    // ITS API returns CCTVs filtered by road type. We query BOTH 'its'
+    // (국도) AND 'ex' (고속도로) and merge the results, otherwise commute
+    // routes that run primarily on highways (e.g. 강남→판교 via 경부고속도로)
+    // return an empty cctvNodes list.
+    const seenCctvIds = new Set();
     let cctvNodes = [];
-    try {
-        const cctvRes = await retryWithBackoff(() => axios_1.default.get('https://openapi.its.go.kr/api/NCCTVInfo', {
+    const fetchCctvs = async (roadType) => {
+        const res = await retryWithBackoff(() => axios_1.default.get('https://openapi.its.go.kr/api/NCCTVInfo', {
             params: {
                 apiKey: ITS_KEY,
-                type: 'its', // its: 국도, ex: 고속도로
+                type: roadType,
                 cctvType: 2, // 1: 실시간 스트리밍, 2: 스냅샷 이미지
                 minX: minLng,
                 maxX: maxLng,
@@ -273,21 +279,38 @@ exports.nodeMatcherBatch = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '5
                 getType: 'json',
             },
         }));
-        const data = cctvRes.data;
+        const data = res.data;
         // ITS JSON response structure: { response: { data: [...] } }
         const items = data?.response?.data ?? data?.data ?? [];
-        cctvNodes = items.map((item) => ({
+        return items.map((item) => ({
             id: String(item.cctvid ?? item.id ?? ''),
             lat: Number(item.coordy ?? item.lat ?? 0),
             lng: Number(item.coordx ?? item.lng ?? 0),
             name: String(item.cctvname ?? item.name ?? ''),
             cctvurl: String(item.cctvurl ?? ''),
         }));
+    };
+    for (const roadType of ['its', 'ex']) {
+        try {
+            const nodes = await fetchCctvs(roadType);
+            for (const node of nodes) {
+                // Dedup across both queries; fall back to a coord-based key if
+                // ITS omits the cctvid so we still avoid exact duplicates.
+                const key = node.id && node.id !== 'undefined'
+                    ? node.id
+                    : `${node.lat.toFixed(5)},${node.lng.toFixed(5)}`;
+                if (seenCctvIds.has(key))
+                    continue;
+                seenCctvIds.add(key);
+                cctvNodes.push(node);
+            }
+        }
+        catch (err) {
+            console.warn(`[NodeMatcher] ITS CCTV API (${roadType}) failed:`, err);
+            // Continue with whatever we have; the other road type may still work
+        }
     }
-    catch (err) {
-        console.warn('[NodeMatcher] ITS CCTV API call failed:', err);
-        // Continue without CCTV data
-    }
+    console.log(`[NodeMatcher] CCTVs fetched: ${cctvNodes.length} (bbox: ${minLng},${minLat} → ${maxLng},${maxLat})`);
     // -----------------------------------------------------------------------
     // 6. Save to Firestore
     // -----------------------------------------------------------------------

@@ -416,16 +416,22 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
 
         if (cancelled) return;
 
-        // Empty route guard: Cloud Function may still be processing the route,
-        // or Firestore doc may not exist yet. Show a clear message instead of
-        // an empty map with no CCTV nodes.
+        // Soft fallback: if we still have no real route (Cloud Function
+        // failed, ITS returned no CCTVs on this bounding box, or we're
+        // cold-starting), fall back to MOCK so the user at least sees a
+        // working map. The degraded banner tells them ITS data is
+        // unavailable. This is much better UX than a blocking error.
         if (!routeData || routeData.cctvNodes.length === 0) {
-          setErrorMessage(
-            '경로 정보를 아직 불러오지 못했습니다. 잠시 후 다시 시도하거나 설정을 다시 확인해주세요.',
+          console.warn(
+            '[MapView] No real route available, falling back to MOCK_ROUTE',
           );
-          setLoadingState('error');
-          setLoading(false);
-          return;
+          routeData = MOCK_ROUTE;
+          setRoute(MOCK_ROUTE);
+          if (useGlobalStore.getState().weatherAlerts.length === 0) {
+            setWeatherAlerts(MOCK_WEATHER_ALERTS);
+            setHazardNodes(MOCK_HAZARD_NODES);
+          }
+          setApiStatus('cctv', 'degraded');
         }
 
         // Step 3: Evaluate hazards (only if real Firestore data exists)
