@@ -243,6 +243,7 @@ export const nodeMatcherBatch = onRequest(
             destination: `${work.lng},${work.lat}`,
           },
           headers: { Authorization: `KakaoAK ${KAKAO_KEY}` },
+          timeout: 15_000,
         }),
       );
 
@@ -300,6 +301,7 @@ export const nodeMatcherBatch = onRequest(
           axios.get('https://dapi.kakao.com/v2/local/geo/coord2regioncode', {
             params: { x: pt.lng, y: pt.lat },
             headers: { Authorization: `KakaoAK ${KAKAO_KEY}` },
+            timeout: 10_000,
           }),
         );
         const documents = geoRes.data?.documents ?? [];
@@ -360,6 +362,11 @@ export const nodeMatcherBatch = onRequest(
             maxY: maxLat,
             getType: 'json',
           },
+          // ITS API can be slow or unreachable from Cloud Functions.
+          // Without a timeout, each attempt blocks for the OS-level TCP
+          // timeout (~120s). With 3 retries × 2 road types that exceeds
+          // the function's 300s deadline. Cap at 15s per attempt.
+          timeout: 15_000,
         }),
       );
       const data = res.data;
