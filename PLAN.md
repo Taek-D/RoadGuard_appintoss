@@ -358,7 +358,7 @@ Body:
 | Kakao Geocoding | 좌표→행정구역 | `https://dapi.kakao.com/v2/local/geo/coord2regioncode` | REST API Key | 사용자당 25-50회 |
 | Kakao Maps JS | 지도 렌더링 | Script SDK | App Key | 클라이언트 |
 | KMA 기상특보 | 특보 현황 | 공공데이터포털 API | 서비스 키 | 10분 (144회/일) |
-| ITS CCTV | CCTV 목록/URL | `https://openapi.its.go.kr/api/NCCTVInfo` | API Key | 사용자당 1회 + 갱신 |
+| ITS CCTV | CCTV 목록/URL | `https://openapi.its.go.kr:9443/cctvInfo` | API Key | 사용자당 1회 + 갱신 |
 | 스마트 발송 | 푸시 알림 | `POST /api-partner/v1/apps-in-toss/messenger/send-message` | x-toss-user-key | 사용자당 최대 1회/일 |
 
 ---

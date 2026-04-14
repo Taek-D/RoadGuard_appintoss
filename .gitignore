@@ -33,6 +33,7 @@ dist-ssr
 .omc/
 .bkit/
 .claude/settings.json
+.claude/*.lock
 docs/.bkit-memory.json
 docs/.pdca-status.json
 docs/.pdca-snapshots/

@@ -351,7 +351,7 @@ export const nodeMatcherBatch = onRequest(
 
     const fetchCctvs = async (roadType: 'its' | 'ex'): Promise<CctvNode[]> => {
       const res: AxiosResponse = await retryWithBackoff(() =>
-        axios.get('http://openapi.its.go.kr/api/NCCTVInfo', {
+        axios.get('https://openapi.its.go.kr:9443/cctvInfo', {
           params: {
             apiKey: ITS_KEY,
             type: roadType,

@@ -312,7 +312,7 @@ exports.nodeMatcherBatch = (0, https_1.onRequest)({
         const seenCctvIds = new Set();
         let cctvNodes = [];
         const fetchCctvs = async (roadType) => {
-            const res = await retryWithBackoff(() => axios_1.default.get('http://openapi.its.go.kr/api/NCCTVInfo', {
+            const res = await retryWithBackoff(() => axios_1.default.get('https://openapi.its.go.kr:9443/cctvInfo', {
                 params: {
                     apiKey: ITS_KEY,
                     type: roadType,
