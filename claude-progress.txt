@@ -450,11 +450,45 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
     - ✅ PASS
   - 커밋: ff7f0b1 (6 files changed, 47 insertions, 277 deletions — 순삭감)
 
+- F010 진행 11: CCTV 완전 제거 (3 Phase, 영구 결정)
+  - 결정 배경: ITS는 한국 공공기관 전용 API이고 클라우드 egress IP를
+    차단함이 확인되어, 재도입 경로가 없다고 판단 → dead branch 유지 대신
+    순제거로 기술 부채 청산
+  - Phase 1 (3b26f22): RealMapView CCTV UI 제거, HazardMarker.tsx 삭제
+    - -229 LoC, 빌드 895KB (Phase 0 대비 -4KB)
+    - selectedNode / isSheetOpen / handleMarkerClick / selectedNodeAlert /
+      HazardMarker 렌더 / "CCTV 보기" 버튼 / BottomSheetViewer 마운트 전부 제거
+    - RealMapView는 map + polyline + weather banner + loading/error 만 남음
+  - Phase 2 (ea3ded2): MockMapView district 기반 재작성
+    - -335 LoC, 빌드 779KB (-115KB, gzip 267 → 225KB, -42KB)
+    - CCTV 노드 리스트 → route.districts 리스트 + 구역별 기상특보 카드
+    - BottomSheetViewer.tsx, CctvSnapshot.tsx 삭제
+    - mockData.ts: MOCK_ROUTE.cctvNodes = [], MOCK_HAZARD_NODES 제거
+    - OnboardingForm.tsx: setHazardNodes / MOCK_HAZARD_NODES / cctvNodes>0
+      가드 제거
+    - 번들 급감 이유: vaul Drawer (BottomSheetViewer의 유일한 소비자) 제거
+  - Phase 3 (779e475): 타입/서비스 레이어 순제거
+    - -77 LoC
+    - globalStore: CctvNode 인터페이스, RouteData.cctvNodes, hazardNodes
+      state, setHazardNodes action 전부 삭제
+    - hazardEvaluator: HazardResult.hazardCctvNodes 제거, 시그니처를
+      evaluateHazards(districts) → { isHazardous, alerts }로 단순화.
+      node.name 기반 구역명 substring 매칭 로직 삭제 (실 데이터에서 항상
+      부정확했던 근사치)
+    - resiliencyController: ApiStatus.cctv 키 + fallbackMessage 제거.
+      weather 메시지에서 "CCTV 정보만 제공" 문구 제거
+    - routeManager.fetchRoute: cctvNodes 필드 매핑 제거
+    - nodeMatcherBatch: CctvNode 인터페이스, RouteDoc.cctvNodes 필드 제거.
+      응답 body에서 cctvCount 제거. Firestore 기존 doc의 stale cctvNodes는
+      merge:true로 그대로 남지만 어디서도 읽지 않음
+  - Firebase 재배포: functions:nodeMatcherBatch (Phase 3) successful update
+  - E2E 재검증: HTTP 200 in 1.6s, districts 4개 real, ✅ PASS
+  - 총 순제거: -641 LoC (329 → 클라이언트 전용 시나리오 전부 심플화)
+
 - 향후 남은 작업 (우선순위 순):
   - 앱인토스 콘솔: 기능 스킴 URL 등록 + 랜딩 렌더링 확인 (콘솔 + 실기기)
   - 앱인토스 콘솔: 로고 600×600 각진 정사각형 PNG 업로드 (별도 준비 필요)
   - 실기기: 최초 화면 백버튼 누르면 미니앱 종료되는지 확인
   - 실서비스 전: exchangeAuthCode에 Toss mTLS client cert 연결 (https.Agent + cert/key)
     → 연결 시 secrets 배열에 TOSS_CLIENT_ID/SECRET 재추가
-  - [post-launch] ITS CCTV 재추가: static egress IP + ITS 콘솔 화이트리스트 또는
-    국내 VPS 프록시 경유 방식 검토. nodeMatcherBatch에 블록만 다시 넣으면 됨
+  - Firebase/Vercel의 ITS_API_KEY secret은 비활성 상태로 남아있음 — 정리 원하면 제거 가능
