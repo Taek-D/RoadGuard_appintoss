@@ -323,11 +323,14 @@ exports.nodeMatcherBatch = (0, https_1.onRequest)({
                     maxY: maxLat,
                     getType: 'json',
                 },
-                // ITS API can be slow or unreachable from Cloud Functions.
-                // Without a timeout, each attempt blocks for the OS-level TCP
-                // timeout (~120s). With 3 retries × 2 road types that exceeds
-                // the function's 300s deadline. Cap at 15s per attempt.
-                timeout: 15000,
+                // ITS API (openapi.its.go.kr:9443) responds in <1s from a local
+                // curl but routinely takes 15-30s when called from GCP's
+                // asia-northeast3 egress — the public-agency TLS stack appears
+                // to rate-limit or slow-start non-domestic IPs. 15s was too
+                // tight and every E2E attempt timed out with ECONNABORTED.
+                // 30s still leaves budget: worst-case 30s × 3 retries × 2 road
+                // types = 180s, well under the 300s function deadline.
+                timeout: 30000,
             }));
             const data = res.data;
             // ITS JSON response structure: { response: { data: [...] } }
