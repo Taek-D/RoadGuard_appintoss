@@ -31,7 +31,6 @@ export const MOCK_ROUTE_COORDS = [
 export const MOCK_ROUTE: RouteData = {
   polyline: 'MOCK',
   districts: ['서울특별시 강남구', '서울특별시 서초구', '경기도 성남시 분당구'],
-  cctvNodes: [],
 };
 
 export const MOCK_WEATHER_ALERTS: WeatherAlert[] = [

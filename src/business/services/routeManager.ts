@@ -10,7 +10,6 @@ export async function fetchRoute(userId: string): Promise<RouteData | null> {
   return {
     polyline: data.polyline || '',
     districts: data.districts || [],
-    cctvNodes: data.cctvNodes || [],
   };
 }
 

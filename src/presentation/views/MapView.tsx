@@ -220,7 +220,6 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
   const weatherAlerts = useGlobalStore((s) => s.weatherAlerts);
   const setRoute = useGlobalStore((s) => s.setRoute);
   const setWeatherAlerts = useGlobalStore((s) => s.setWeatherAlerts);
-  const setHazardNodes = useGlobalStore((s) => s.setHazardNodes);
   const setLoading = useGlobalStore((s) => s.setLoading);
 
   const apiStatus = useResiliencyStore((s) => s.apiStatus);
@@ -309,7 +308,6 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
               // the real districts we just loaded.
               if (isMockRoute) {
                 setWeatherAlerts([]);
-                setHazardNodes([]);
               }
             }
           } catch (err) {
@@ -339,13 +337,9 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
         const existingAlerts = useGlobalStore.getState().weatherAlerts;
         if (routeData.districts.length > 0 && existingAlerts.length === 0) {
           try {
-            const result = await evaluateHazards(
-              routeData.districts,
-              routeData.cctvNodes
-            );
+            const result = await evaluateHazards(routeData.districts);
             if (result.alerts.length > 0) {
               setWeatherAlerts(result.alerts);
-              setHazardNodes(result.hazardCctvNodes);
             }
           } catch (err) {
             console.error('[MapView] Hazard evaluation failed:', err);

@@ -1,19 +1,17 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { CctvNode, WeatherAlert } from '@/business/store/globalStore';
+import type { WeatherAlert } from '@/business/store/globalStore';
 
 export interface HazardResult {
   isHazardous: boolean;
   alerts: WeatherAlert[];
-  hazardCctvNodes: CctvNode[];
 }
 
 export async function evaluateHazards(
   districts: string[],
-  cctvNodes: CctvNode[]
 ): Promise<HazardResult> {
   if (districts.length === 0) {
-    return { isHazardous: false, alerts: [], hazardCctvNodes: [] };
+    return { isHazardous: false, alerts: [] };
   }
 
   const alertsRef = collection(db, 'weatherAlerts');
@@ -38,17 +36,9 @@ export async function evaluateHazards(
     });
   }
 
-  const hazardDistricts = new Set(alerts.map((a) => a.district));
-  const hazardCctvNodes = cctvNodes.filter((node) => {
-    // CCTV 노드의 행정구역이 위험 구역에 포함되는지 확인
-    // 실제로는 좌표 기반 매칭이 필요하나 MVP에서는 name 필드로 근사
-    return Array.from(hazardDistricts).some((d) => node.name.includes(d));
-  });
-
   return {
     isHazardous: alerts.length > 0,
     alerts,
-    hazardCctvNodes,
   };
 }
 

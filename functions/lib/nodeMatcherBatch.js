@@ -278,21 +278,6 @@ exports.nodeMatcherBatch = (0, https_1.onRequest)({
         }
         const districts = Array.from(districtSet);
         // -----------------------------------------------------------------------
-        // 5. CCTV integration intentionally omitted.
-        // -----------------------------------------------------------------------
-        // ITS (openapi.its.go.kr:9443) responds fine to local curl but TCP/TLS
-        // handshakes from both GCP asia-northeast3 and Vercel icn1 egress IPs
-        // are dropped by the agency's network (10-30s ECONNABORTED / "fetch
-        // failed"). The documented workaround is a static egress IP that is
-        // registered on the ITS console — out of scope for this release.
-        //
-        // MVP focuses on weather-alert delivery (KMA, which is reachable), so
-        // we persist an empty cctvNodes array and let the client render a
-        // district-level hazard banner instead of per-CCTV markers. Adding the
-        // ITS section back is a purely local change — shape of routes/<id>
-        // already carries cctvNodes: [].
-        const cctvNodes = [];
-        // -----------------------------------------------------------------------
         // 6. Save to Firestore
         // -----------------------------------------------------------------------
         const polylineToStore = overviewPolyline ??
@@ -300,15 +285,13 @@ exports.nodeMatcherBatch = (0, https_1.onRequest)({
         const routeDoc = {
             polyline: polylineToStore,
             districts,
-            cctvNodes,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         await db.collection('routes').doc(userId).set(routeDoc, { merge: true });
-        console.log(`[NodeMatcher] Saved route for user ${userId}: ${districts.length} districts, ${cctvNodes.length} CCTVs`);
+        console.log(`[NodeMatcher] Saved route for user ${userId}: ${districts.length} districts`);
         res.json({
             success: true,
             districts,
-            cctvCount: cctvNodes.length,
         });
     }
     catch (err) {
