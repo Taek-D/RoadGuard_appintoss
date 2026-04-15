@@ -5,7 +5,7 @@ import { db } from '@/lib/firebase';
 import { searchAddress, type KakaoPlace } from '@/lib/kakaoSearch';
 import { triggerNodeMatcher, fetchRoute } from '@/business/services/routeManager';
 import { useGlobalStore } from '@/business/store/globalStore';
-import { MOCK_MODE, MOCK_ROUTE, MOCK_WEATHER_ALERTS, MOCK_HAZARD_NODES } from '@/lib/mockData';
+import { MOCK_MODE, MOCK_ROUTE, MOCK_WEATHER_ALERTS } from '@/lib/mockData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -318,7 +318,6 @@ const OnboardingForm = () => {
 
   const setRoute = useGlobalStore((s) => s.setRoute);
   const setWeatherAlerts = useGlobalStore((s) => s.setWeatherAlerts);
-  const setHazardNodes = useGlobalStore((s) => s.setHazardNodes);
 
   const handleNext = async () => {
     if (step < TOTAL_STEPS - 1) {
@@ -377,10 +376,10 @@ const OnboardingForm = () => {
             fetchRoute(user.userId),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
           ]);
-          if (realRoute && realRoute.cctvNodes.length > 0) {
+          if (realRoute) {
             setRoute(realRoute);
-            // Leave weatherAlerts/hazardNodes empty so MapView's
-            // evaluateHazards can populate them from the real districts.
+            // Leave weatherAlerts empty so MapView's evaluateHazards
+            // can populate them from the real districts.
           }
         }
       } catch (err) {
@@ -393,7 +392,6 @@ const OnboardingForm = () => {
       if (!useGlobalStore.getState().route) {
         setRoute(MOCK_ROUTE);
         setWeatherAlerts(MOCK_WEATHER_ALERTS);
-        setHazardNodes(MOCK_HAZARD_NODES);
       }
 
       setAuthState('authenticated_onboarded');

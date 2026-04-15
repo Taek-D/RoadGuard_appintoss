@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGlobalStore } from '@/business/store/globalStore';
-import type { CctvNode } from '@/business/store/globalStore';
 import { fetchRoute, triggerNodeMatcher } from '@/business/services/routeManager';
 import { evaluateHazards } from '@/business/services/hazardEvaluator';
 import { useResiliencyStore, getFallbackMessage } from '@/business/utils/resiliencyController';
 import { useNetworkStatus } from '@/business/hooks/useNetworkStatus';
 import { loadKakaoMapSdk, getMidpoint } from '@/lib/kakaoMap';
-import { MOCK_MODE, MOCK_ROUTE, MOCK_WEATHER_ALERTS, MOCK_HAZARD_NODES } from '@/lib/mockData';
+import { MOCK_MODE, MOCK_ROUTE, MOCK_WEATHER_ALERTS } from '@/lib/mockData';
 import RoutePolyline from '@/presentation/components/RoutePolyline';
-import BottomSheetViewer from '@/presentation/components/BottomSheetViewer';
 
 type LoadingState = 'loading' | 'ready' | 'error';
 
@@ -19,32 +17,13 @@ type LoadingState = 'loading' | 'ready' | 'error';
 function MockMapView() {
   const route = useGlobalStore((s) => s.route) ?? MOCK_ROUTE;
   const weatherAlerts = useGlobalStore((s) => s.weatherAlerts);
-  const hazardNodes = useGlobalStore((s) => s.hazardNodes);
 
-  const [selectedNode, setSelectedNode] = useState<CctvNode | null>(null);
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
-
-  const allCctvNodes = route.cctvNodes;
-  const hazardNodeIds = new Set(hazardNodes.map((n) => n.id));
+  const districts = route.districts;
   const hazardCount = weatherAlerts.filter((a) => a.hasAlert).length;
 
-  const handleNodeClick = useCallback((node: CctvNode) => {
-    setSelectedNode(node);
-  }, []);
-
-  const handleSheetClose = useCallback(() => {
-    setIsSheetOpen(false);
-    setSelectedNode(null);
-  }, []);
-
-  const selectedNodeAlert = selectedNode
-    ? weatherAlerts.find((a) => a.hasAlert && a.district && selectedNode.name.includes(a.district))
-      ?? weatherAlerts.find((a) => a.hasAlert && (
-        (a.district.includes('서초') && selectedNode.name.includes('양재')) ||
-        (a.district.includes('분당') && (selectedNode.name.includes('판교') || selectedNode.name.includes('분당')))
-      ))
-      ?? null
-    : null;
+  // Look up an active alert for a given district; MOCK mode only.
+  const findAlert = (district: string) =>
+    weatherAlerts.find((a) => a.hasAlert && a.district === district) ?? null;
 
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden bg-slate-950">
@@ -73,7 +52,7 @@ function MockMapView() {
             }`}
           >
             {hazardCount > 0
-              ? `\u26A0\uFE0F ${hazardCount}개 구간 기상 위험`
+              ? `\u26A0\uFE0F ${hazardCount}개 구역 기상 위험`
               : '\u2705 경로 안전'}
           </p>
           {hazardCount > 0 && weatherAlerts.length > 0 && (
@@ -94,10 +73,10 @@ function MockMapView() {
         </div>
       </div>
 
-      {/* Route visualization */}
-      <div className="absolute inset-0 flex items-center justify-center pt-28 pb-24">
-        <div className="relative w-full max-w-xs mx-auto">
-          {/* Route path line (SVG) */}
+      {/* Route visualization — district cards along a vertical commute line */}
+      <div className="absolute inset-0 flex items-center justify-center pt-28 pb-10">
+        <div className="relative w-full max-w-sm mx-auto px-3">
+          {/* Dashed vertical route line */}
           <svg
             className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2"
             width="4"
@@ -115,31 +94,27 @@ function MockMapView() {
             />
           </svg>
 
-          {/* CCTV Nodes */}
+          {/* District cards */}
           <div className="relative flex flex-col gap-3">
-            {allCctvNodes.map((node, index) => {
-              const isHazardous = hazardNodeIds.has(node.id);
-              const isSelected = selectedNode?.id === node.id;
+            {districts.map((district, index) => {
+              const alert = findAlert(district);
+              const isHazardous = alert !== null;
               const isFirst = index === 0;
-              const isLast = index === allCctvNodes.length - 1;
+              const isLast = index === districts.length - 1;
 
               return (
-                <button
-                  key={node.id}
-                  type="button"
+                <div
+                  key={district}
                   className={`
-                    relative flex items-center gap-4 rounded-xl px-4 py-3.5 text-left transition-all duration-200
-                    ${isSelected
-                      ? isHazardous
-                        ? 'bg-red-950/60 border border-red-500/40 shadow-lg shadow-red-900/20'
-                        : 'bg-slate-800/80 border border-sky-500/40 shadow-lg shadow-sky-900/20'
-                      : 'bg-slate-900/40 border border-slate-800/50 hover:bg-slate-800/60'
+                    relative flex items-start gap-4 rounded-xl px-4 py-3.5
+                    ${isHazardous
+                      ? 'bg-red-950/60 border border-red-500/40 shadow-lg shadow-red-900/20'
+                      : 'bg-slate-900/40 border border-slate-800/50'
                     }
                   `}
-                  onClick={() => handleNodeClick(node)}
                 >
                   {/* Node dot */}
-                  <div className="relative flex items-center justify-center shrink-0">
+                  <div className="relative flex items-center justify-center shrink-0 mt-0.5">
                     {isHazardous ? (
                       <div className="relative">
                         <div
@@ -162,9 +137,9 @@ function MockMapView() {
                     )}
                   </div>
 
-                  {/* Node info */}
+                  {/* District info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {isFirst && (
                         <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded">
                           출발
@@ -176,12 +151,18 @@ function MockMapView() {
                         </span>
                       )}
                       <p className="text-sm font-medium text-slate-200 truncate">
-                        {node.name}
+                        {district}
                       </p>
                     </div>
-                    <p className="text-xs mt-0.5 text-slate-500">
-                      {node.lat.toFixed(4)}, {node.lng.toFixed(4)}
-                    </p>
+                    {alert && (
+                      <p
+                        className={`text-xs mt-1 leading-relaxed ${
+                          alert.alertLevel === '경보' ? 'text-red-200' : 'text-orange-200'
+                        }`}
+                      >
+                        {alert.alertType} {alert.alertLevel} — {alert.message}
+                      </p>
+                    )}
                   </div>
 
                   {/* Status badge */}
@@ -198,64 +179,14 @@ function MockMapView() {
                       </span>
                     )}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
         </div>
       </div>
 
-      {/* Selected node action card */}
-      {selectedNode && !isSheetOpen && (
-        <div className="absolute bottom-6 left-3 right-3 z-10">
-          <div className="rounded-xl bg-slate-900/90 border border-slate-700/50 backdrop-blur-sm px-4 py-3 shadow-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-100 truncate">
-                  {selectedNode.name}
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {hazardNodeIds.has(selectedNode.id)
-                    ? '\u26A0\uFE0F 위험 구간'
-                    : '\u2705 안전 구간'}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 ml-3">
-                <button
-                  type="button"
-                  className="px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-medium hover:bg-sky-500 active:bg-sky-700 transition-colors"
-                  onClick={() => setIsSheetOpen(true)}
-                >
-                  CCTV 보기
-                </button>
-                <button
-                  type="button"
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 transition-colors"
-                  onClick={() => {
-                    setSelectedNode(null);
-                    setIsSheetOpen(false);
-                  }}
-                  aria-label="닫기"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* BottomSheetViewer */}
-      <BottomSheetViewer
-        node={selectedNode}
-        alert={selectedNodeAlert}
-        isOpen={isSheetOpen}
-        onClose={handleSheetClose}
-      />
-
-      {/* CSS animations for mock markers */}
+      {/* CSS animations for hazard dots */}
       <style>{`
         @keyframes mockPulse {
           0%, 100% { transform: scale(1); box-shadow: 0 0 10px 3px rgba(239, 68, 68, 0.4); }
@@ -400,7 +331,6 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
           setRoute(MOCK_ROUTE);
           if (useGlobalStore.getState().weatherAlerts.length === 0) {
             setWeatherAlerts(MOCK_WEATHER_ALERTS);
-            setHazardNodes(MOCK_HAZARD_NODES);
           }
         }
 
