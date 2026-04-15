@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pushNotifier = exports.weatherCollectorBatch = exports.nodeMatcherBatch = void 0;
+exports.exchangeAuthCode = exports.pushNotifier = exports.weatherCollectorBatch = exports.nodeMatcherBatch = void 0;
 const admin = __importStar(require("firebase-admin"));
 admin.initializeApp();
 var nodeMatcherBatch_1 = require("./nodeMatcherBatch");
@@ -42,4 +42,6 @@ var weatherCollectorBatch_1 = require("./weatherCollectorBatch");
 Object.defineProperty(exports, "weatherCollectorBatch", { enumerable: true, get: function () { return weatherCollectorBatch_1.weatherCollectorBatch; } });
 var pushNotifier_1 = require("./pushNotifier");
 Object.defineProperty(exports, "pushNotifier", { enumerable: true, get: function () { return pushNotifier_1.pushNotifier; } });
+var exchangeAuthCode_1 = require("./exchangeAuthCode");
+Object.defineProperty(exports, "exchangeAuthCode", { enumerable: true, get: function () { return exchangeAuthCode_1.exchangeAuthCode; } });
 //# sourceMappingURL=index.js.map

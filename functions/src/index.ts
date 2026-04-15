@@ -5,3 +5,4 @@ admin.initializeApp();
 export { nodeMatcherBatch } from './nodeMatcherBatch';
 export { weatherCollectorBatch } from './weatherCollectorBatch';
 export { pushNotifier } from './pushNotifier';
+export { exchangeAuthCode } from './exchangeAuthCode';
