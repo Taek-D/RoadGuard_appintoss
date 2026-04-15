@@ -375,10 +375,53 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
     - firebase functions:secrets:set TOSS_CLIENT_SECRET (콘솔에서 발급)
     - TOSS_CLIENT_* 미등록 상태에서는 mock 모드로 동작하므로 배포 자체는 가능
 
+- F010 진행 9: 배포 + E2E 실행 + GCP egress 이슈 발견
+  - 배포:
+    - APP_JWT_SECRET 신규 생성(48바이트 base64url) → Secret Manager version 1 등록
+    - exchangeAuthCode.ts secrets 배열에서 TOSS_CLIENT_ID/SECRET 제거
+      (Firebase는 배열 전원이 존재해야 deploy 허용, mTLS 연결 전까지는 APP_JWT_SECRET만)
+    - firebase deploy --only functions:exchangeAuthCode →
+      https://asia-northeast3-holdem-ranking.cloudfunctions.net/exchangeAuthCode
+    - Smoke test: POST {authorizationCode:"smoke-test-abc123", referrer:"SANDBOX"}
+      → HTTP 200, HS256 JWT 발급, expiresIn: 2592000(30일),
+      userKey: mock_93b9f05b52ce211b98e3fdd0 (deterministic sha256)
+    - 커밋: 649bf46 (secrets array fix)
+
+  - E2E 1차 실행 (강남-판교 프리셋):
+    - HTTP 200, 95초 소요 (Kakao 경로 탐색 + reverse geocode + ITS ×2 retry)
+    - districts: 4개 정상 추출 ("서울특별시 서초구/강남구", "경기도 성남시 수정구/분당구")
+    - polyline: len=6148 (vertex 기반 재구성 정상)
+    - cctvNodes: 0 ❌
+    - 함수 로그 분석: AxiosError timeout 15000ms ECONNABORTED 반복 발생
+    - 로컬 curl 검증: 동일 URL이 HTTP 200 + 59 CCTVs 즉시 응답
+    - 결론: ITS API는 정상이나 Cloud Functions(asia-northeast3) egress IP에서
+      openapi.its.go.kr:9443로의 TCP/TLS 연결이 매우 느림 (15s 타임아웃)
+    - 조치: axios timeout 15s → 30s 상향 후 재배포 (커밋 340fb9d)
+
+  - E2E 2차 실행 (30s timeout):
+    - HTTP 200, 184초 소요 (30s × 3 retries × 2 road types + Kakao)
+    - 여전히 cctvNodes: 0 ❌
+    - 30초로도 부족 — egress IP가 ITS 측에서 slow-start 또는 rate-limit 대상
+    - 단순 timeout 증가로는 해결 불가, 인프라 레벨 조치 필요
+
+  - 근본 원인 진단:
+    - 공공기관 API(국토부 ITS)는 통상 특정 IP만 신뢰하는 네트워크 정책 운영
+    - GCP Cloud Functions 2nd Gen은 dynamic egress IP 사용 → cold IP로 판별됨
+    - 로컬 curl은 ISP의 한국 고정 IP로 나가므로 정상 응답
+    - 해결: VPC Connector + Cloud NAT static IP → ITS 콘솔에 IP 화이트리스트 등록
+      (별도 인프라 작업, 이번 세션 범위 밖)
+
+  - 현재 방어 상태:
+    - MapView.tsx는 route.cctvNodes.length === 0이면 MockMapView로 soft fallback
+    - + degraded CCTV 배너로 사용자 안내
+    - 기상 알림(KMA)과 경로 표시는 real 데이터로 동작, CCTV만 mock
+    - 심사 관점: 앱 작동 중단 없음, UI 완결성 유지
+
 - 향후 남은 작업 (우선순위 순):
-  - 실 경로로 NodeMatcherBatch E2E 테스트 (ITS 키 활성화 후 npm run verify:e2e 실행)
+  - [인프라] VPC Connector 설정 + Cloud NAT static egress IP 발급 →
+    ITS 콘솔에 IP 등록 → nodeMatcherBatch에 vpcConnector 옵션 추가
   - 앱인토스 콘솔: 기능 스킴 URL 등록 + 랜딩 렌더링 확인 (콘솔 + 실기기)
   - 앱인토스 콘솔: 로고 600×600 각진 정사각형 PNG 업로드 (별도 준비 필요)
   - 실기기: 최초 화면 백버튼 누르면 미니앱 종료되는지 확인
   - 실서비스 전: exchangeAuthCode에 Toss mTLS client cert 연결 (https.Agent + cert/key)
-  - 실서비스 전: exchangeAuthCode 배포 + APP_JWT_SECRET secrets 등록
+    → 연결 시 secrets 배열에 TOSS_CLIENT_ID/SECRET 재추가
