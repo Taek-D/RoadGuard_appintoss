@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGlobalStore } from '@/business/store/globalStore';
 import type { CctvNode } from '@/business/store/globalStore';
 import { fetchRoute, triggerNodeMatcher } from '@/business/services/routeManager';
@@ -7,7 +7,6 @@ import { useResiliencyStore, getFallbackMessage } from '@/business/utils/resilie
 import { useNetworkStatus } from '@/business/hooks/useNetworkStatus';
 import { loadKakaoMapSdk, getMidpoint } from '@/lib/kakaoMap';
 import { MOCK_MODE, MOCK_ROUTE, MOCK_WEATHER_ALERTS, MOCK_HAZARD_NODES } from '@/lib/mockData';
-import HazardMarker from '@/presentation/components/HazardMarker';
 import RoutePolyline from '@/presentation/components/RoutePolyline';
 import BottomSheetViewer from '@/presentation/components/BottomSheetViewer';
 
@@ -284,13 +283,10 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
   const [kakaoMap, setKakaoMap] = useState<kakao.maps.Map | null>(null);
   const [loadingState, setLoadingState] = useState<LoadingState>('loading');
   const [errorMessage, setErrorMessage] = useState('');
-  const [selectedNode, setSelectedNode] = useState<CctvNode | null>(null);
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   const user = useGlobalStore((s) => s.user);
   const route = useGlobalStore((s) => s.route);
   const weatherAlerts = useGlobalStore((s) => s.weatherAlerts);
-  const hazardNodes = useGlobalStore((s) => s.hazardNodes);
   const setRoute = useGlobalStore((s) => s.setRoute);
   const setWeatherAlerts = useGlobalStore((s) => s.setWeatherAlerts);
   const setHazardNodes = useGlobalStore((s) => s.setHazardNodes);
@@ -309,35 +305,6 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
   );
 
   const hazardCount = weatherAlerts.filter((a) => a.hasAlert).length;
-
-  // All CCTV nodes from route
-  const allCctvNodes = route?.cctvNodes ?? [];
-
-  // Set of hazardous node IDs for quick lookup
-  const hazardNodeIds = new Set(hazardNodes.map((n) => n.id));
-
-  // Handle marker click — opens BottomSheetViewer with CCTV snapshot
-  const handleMarkerClick = useCallback((node: CctvNode) => {
-    setSelectedNode(node);
-    setIsSheetOpen(true);
-    console.info('[MapView] Marker clicked:', node.id, node.name);
-  }, []);
-
-  // Find matching weather alert for the selected node's district
-  const selectedNodeAlert = selectedNode
-    ? weatherAlerts.find((a) => a.hasAlert && a.district && selectedNode.name.includes(a.district))
-      ?? weatherAlerts.find((a) => a.hasAlert && (
-        (a.district.includes('서초') && selectedNode.name.includes('양재')) ||
-        (a.district.includes('분당') && (selectedNode.name.includes('판교') || selectedNode.name.includes('분당')))
-      ))
-      ?? null
-    : null;
-
-  // Close handler for the bottom sheet
-  const handleSheetClose = useCallback(() => {
-    setIsSheetOpen(false);
-    setSelectedNode(null);
-  }, []);
 
   // Initialize map and load data
   useEffect(() => {
@@ -610,18 +577,6 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
         />
       )}
 
-      {/* CCTV node markers */}
-      {kakaoMap &&
-        allCctvNodes.map((node) => (
-          <HazardMarker
-            key={node.id}
-            map={kakaoMap}
-            node={node}
-            isHazardous={hazardNodeIds.has(node.id)}
-            onMarkerClick={handleMarkerClick}
-          />
-        ))}
-
       {/* Loading overlay */}
       {loadingState === 'loading' && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/90">
@@ -668,54 +623,6 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
         </div>
       )}
 
-      {/* Selected node info card */}
-      {selectedNode && loadingState === 'ready' && !isSheetOpen && (
-        <div className="absolute bottom-6 left-3 right-3 z-10">
-          <div className="rounded-xl bg-slate-900/90 border border-slate-700/50 backdrop-blur-sm px-4 py-3 shadow-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-100 truncate">
-                  {selectedNode.name}
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {hazardNodeIds.has(selectedNode.id)
-                    ? '\u26A0\uFE0F 위험 구간'
-                    : '\u2705 안전 구간'}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 ml-3">
-                <button
-                  type="button"
-                  className="px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-medium hover:bg-sky-500 active:bg-sky-700 transition-colors"
-                  onClick={() => setIsSheetOpen(true)}
-                >
-                  CCTV 보기
-                </button>
-                <button
-                  type="button"
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 transition-colors"
-                  onClick={() => {
-                    setSelectedNode(null);
-                    setIsSheetOpen(false);
-                  }}
-                  aria-label="닫기"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* BottomSheetViewer for CCTV snapshot */}
-      <BottomSheetViewer
-        node={selectedNode}
-        alert={selectedNodeAlert}
-        isOpen={isSheetOpen}
-        onClose={handleSheetClose}
-      />
     </div>
   );
 };
