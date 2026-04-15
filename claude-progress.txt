@@ -417,11 +417,44 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
     - 기상 알림(KMA)과 경로 표시는 real 데이터로 동작, CCTV만 mock
     - 심사 관점: 앱 작동 중단 없음, UI 완결성 유지
 
+- F010 진행 10: ITS CCTV 완전 제거 → 기상특보 전용 MVP
+  - Vercel icn1 probe 결과: ITS 서버가 Vercel egress도 10초 만에 fetch failed
+    (GCP asia-northeast3와 동일한 차단 패턴)
+  - 결론: 클라우드 서버리스 egress IP 전반이 ITS의 IP allow list에서 누락.
+    근본 해결은 static egress IP + ITS 콘솔 등록 필요 → 이번 릴리즈 범위 밖
+  - 제품 가치는 "경로상 기상 위험 알림"이고 CCTV는 보조 시각화였으므로
+    CCTV 섹션 전체 제거하고 district 단위 기상특보만으로 MVP 출시
+  - 변경:
+    - functions/src/nodeMatcherBatch.ts:
+      - secrets 배열에서 ITS_API_KEY 제거 (KAKAO_REST_KEY만)
+      - ITS fetch 블록 80여 줄 완전 제거 (bbox, 2 road types, retries, 30s timeout)
+      - cctvNodes = [] 상수 대입, routeDoc 스키마는 그대로 유지
+      - Kakao Directions + reverse geocode는 그대로 (districts, polyline real)
+    - src/presentation/views/MapView.tsx:
+      - `cctvNodes.length === 0 → MOCK fallback` 가드 제거
+        (기존엔 real 경로도 cctv 0개면 MOCK으로 되돌려 버렸음)
+      - 이제 routeData 자체가 null인 경우(cold start, CF 실패)에만 MOCK fallback
+      - setApiStatus('cctv', 'degraded') 호출도 함께 삭제 (이제 정상 경로)
+    - scripts/verify-e2e.mjs:
+      - cctvNodes.length === 0 FAIL 조건 제거, PASS 메시지 update
+    - api/cctv-probe.ts:
+      - 진단용 Vercel Function이었으므로 삭제
+    - vercel.json:
+      - /api/* rewrite는 유지 (향후 다른 serverless function에 재사용 가능)
+  - Firebase 재배포: functions:nodeMatcherBatch → Successful update
+  - E2E 결과:
+    - HTTP 200, 718ms (이전 184000ms → 255배 빠름)
+    - districts: 4개 (서초/강남/수정/분당) real 데이터
+    - polyline: 6148자 (vertex 재구성, real)
+    - cctvNodes: 0 (의도된 동작)
+    - ✅ PASS
+  - 커밋: ff7f0b1 (6 files changed, 47 insertions, 277 deletions — 순삭감)
+
 - 향후 남은 작업 (우선순위 순):
-  - [인프라] VPC Connector 설정 + Cloud NAT static egress IP 발급 →
-    ITS 콘솔에 IP 등록 → nodeMatcherBatch에 vpcConnector 옵션 추가
   - 앱인토스 콘솔: 기능 스킴 URL 등록 + 랜딩 렌더링 확인 (콘솔 + 실기기)
   - 앱인토스 콘솔: 로고 600×600 각진 정사각형 PNG 업로드 (별도 준비 필요)
   - 실기기: 최초 화면 백버튼 누르면 미니앱 종료되는지 확인
   - 실서비스 전: exchangeAuthCode에 Toss mTLS client cert 연결 (https.Agent + cert/key)
     → 연결 시 secrets 배열에 TOSS_CLIENT_ID/SECRET 재추가
+  - [post-launch] ITS CCTV 재추가: static egress IP + ITS 콘솔 화이트리스트 또는
+    국내 VPS 프록시 경유 방식 검토. nodeMatcherBatch에 블록만 다시 넣으면 됨
