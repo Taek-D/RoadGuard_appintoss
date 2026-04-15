@@ -3,6 +3,34 @@ import { decodePolyline } from '@/lib/kakaoMap';
 import { MOCK_ROUTE_COORDS } from '@/lib/mockData';
 import type { WeatherAlert } from '@/business/store/globalStore';
 
+/**
+ * The server stores `polyline` in one of three shapes:
+ *   1. 'MOCK' sentinel
+ *   2. Google-style encoded polyline (rare — Kakao Directions seldom returns one)
+ *   3. CSV lng,lat;lng,lat;... fallback built from section vertexes (the
+ *      typical production case)
+ *
+ * The old implementation only handled (1) and (2), so every real user's
+ * polyline silently collapsed to zero points and nothing got drawn on the
+ * map. We detect (3) by scanning for a comma in the first token.
+ */
+function parseRoutePolyline(polyline: string): Array<{ lat: number; lng: number }> {
+  if (polyline === 'MOCK') return MOCK_ROUTE_COORDS;
+  if (!polyline) return [];
+
+  const firstSegment = polyline.split(';', 1)[0];
+  if (firstSegment.includes(',')) {
+    return polyline
+      .split(';')
+      .map((pair) => pair.split(','))
+      .filter((parts) => parts.length >= 2)
+      .map(([lng, lat]) => ({ lat: parseFloat(lat), lng: parseFloat(lng) }))
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+  }
+
+  return decodePolyline(polyline);
+}
+
 interface UseRoutePolylineOptions {
   map: kakao.maps.Map | null;
   encodedPolyline: string;
@@ -43,10 +71,7 @@ export function useRoutePolyline({
     polylinesRef.current.forEach((pl) => pl.setMap(null));
     polylinesRef.current = [];
 
-    // Use mock coordinates if polyline is 'MOCK', otherwise decode
-    const points = encodedPolyline === 'MOCK'
-      ? MOCK_ROUTE_COORDS
-      : decodePolyline(encodedPolyline);
+    const points = parseRoutePolyline(encodedPolyline);
     if (points.length < 2) return;
 
     const path = points.map(

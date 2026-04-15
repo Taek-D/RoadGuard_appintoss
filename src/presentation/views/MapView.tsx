@@ -424,13 +424,10 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
 
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden">
-      {/* Map container with grayscale/muted style */}
+      {/* Map container — full Kakao color so users see real terrain */}
       <div
         ref={mapContainerRef}
         className="absolute inset-0 w-full h-full"
-        style={{
-          filter: 'grayscale(0.8) contrast(1.1)',
-        }}
       />
 
       {/* Top status bar overlay */}
