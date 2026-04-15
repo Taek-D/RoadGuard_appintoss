@@ -253,9 +253,132 @@ Seed: seed_886da26e8f95 | Ambiguity: 0.198
     - SDK import 패턴 유지 ✅
     - navigator.onLine은 Web API이므로 SDK 패턴 대상 아님
 
+### Session 5 — 2026-04-12~14
+- F010 진행 7: 실 데이터 경로 복구 (7커밋) — MOCK에서 real API로 완전 전환
+  - e354f47 fix(F010): load real CCTV data instead of leaving MOCK_ROUTE stuck
+    - OnboardingForm: triggerNodeMatcher 후 fetchRoute(userId) + setRoute(realRoute)
+      추가, 타임아웃 5s → 8s (Kakao Directions + reverse geocoding + ITS 여유)
+    - MapView: route.polyline === 'MOCK'을 "real route 아직 없음"으로 취급,
+      항상 Firestore 재조회. Firestore도 비어 있으면 MapView에서 nodeMatcher
+      한 번 직접 트리거 → 업그레이드 시 mock weatherAlerts/hazardNodes 클리어
+      → evaluateHazards 재실행 (실 행정구역 기준)
+  - 42b632d fix(F010): soft-fallback map and widen CCTV query to highways
+    - MapView: 빈 route/cctvNodes 시 error overlay 대신 MOCK fallback + degraded
+      cctv 배너 (사용자는 항상 동작하는 지도를 봄)
+    - nodeMatcher: overviewPolyline `A ?? B ? undefined : undefined` 버그 수정
+      (?? 그룹 먼저 평가되어 항상 undefined 반환) → 직접 routes[0]?.overview_polyline
+      읽기
+    - nodeMatcher: CCTV 쿼리를 type: 'its'(국도)에서 'its' + 'ex'(고속도로)로 확장,
+      cctvid 기준 dedup (좌표 fallback key). 경부/내부순환/분당내곡 경로 CCTV 복구
+  - 502abcc fix(F010): bind Firestore to named database and switch nodeMatcher
+    to onRequest — 3가지 프로덕션 버그 동시 해결
+    - Root cause: holdem-ranking 프로젝트에 (default) Firestore가 없고 named DB
+      "roadguard"만 존재. 클라이언트 getFirestore(app)와 functions admin.firestore()
+      모두 (default)에 silent bind → 클라 timeout (MOCK fallback) / 서버 gRPC 5
+      NOT_FOUND. 클라는 getFirestore(app, 'roadguard'), 3개 함수는 모두
+      getFirestore('roadguard') from firebase-admin/firestore
+    - onCall 403: Toss appLogin 사용하므로 Firebase ID token 없음. v2 onCall은 edge
+      에서 인증 거부하고 `invoker` 옵션도 httpsTrigger(onRequest)에만 연결됨 →
+      nodeMatcherBatch를 onRequest + cors:true + invoker:'public'으로 재작성,
+      NodeMatcherError → HTTP status 매핑, 클라는 httpsCallable 대신 plain fetch
+    - Region mismatch: 클라는 asia-northeast3 호출, 함수는 us-central1(v2 기본)
+      배포 → us-central1 삭제 후 asia-northeast3 재배포
+    - 검증: 존재하지 않는 userId로 호출 시 {"error":"not-found", ...} HTTP 404
+      (reachable) → 이전엔 silent MOCK fallback이었음
+  - 78def00 fix(F010): use initializeFirestore, trim env vars, add API timeouts
+    - firebase.ts: getFirestore(app, dbId) → initializeFirestore(app, {}, dbId)
+      (JS SDK가 DB path에 \n 삽입하던 encoding 버그 회피:
+      projects/holdem-ranking\n/databases/roadguard). 모든 env var에 .trim()
+      (Vercel/CI 공백 대응)
+    - nodeMatcher: axios timeout 추가 (Kakao/ITS 15s, 역지오코딩 10s). 기존엔
+      TCP 타임아웃 ~120s × retry × road type으로 300s deadline 초과 → 504
+  - 57d8d98 fix(F010): switch KMA API to getPwnStatus for current weather warnings
+    - 기존 getWthrWrnList (이력 조회)는 fromTmFc/toTmFc 필수 → 무조건 NO_DATA 반환,
+      실 alert가 Firestore에 한 번도 기록되지 않았음 (앱은 영구 MOCK 상태)
+    - getPwnStatus (특보현황조회)로 전환: 날짜 파라미터 없이 현재 active 특보 반환,
+      파서가 이미 쓰던 t6/t7 필드명과 일치. "o 없음" sentinel 가드 추가하여
+      "없음" 지역명 가짜 alert 생성 방지
+  - db7b086 fix(F010): correct ITS cctvType to 3 (still image) and use HTTP
+    - ITS 가이드 재확인: cctvType 2는 mp4 영상, 3이 스냅샷 (기존 주석 오류)
+    - ITS API는 HTTP(80)에서만 응답, HTTPS(443)는 timeout → http:// 엔드포인트로 전환
+    - 발급 키가 여전히 거부되는 문제 확인: 외부 이슈 (its.go.kr/opendata 재활성화
+      필요), 코드 버그 아님
+  - c0d99bd fix(F010): migrate ITS CCTV API to new endpoint
+    - ITS 센터 확인: 기존 URL http://openapi.its.go.kr/api/NCCTVInfo는 구 OPEN API,
+      곧 서비스 종료. 신규 발급 키는 신 엔드포인트만 동작 →
+      https://openapi.its.go.kr:9443/cctvInfo로 교체
+    - 기타: .claude/*.lock gitignore 추가
+
+- 통합 효과: OnboardingForm → nodeMatcherBatch (asia-northeast3, onRequest, named DB)
+  → Kakao Directions + 역지오코딩 + ITS CCTV (국도+고속도로) → Firestore
+  routes.cctvNodes → MapView에서 real 데이터 렌더링. 실패/빈 결과 시에도 MOCK
+  soft fallback + degraded 배너로 UX 유지.
+
+### Session 6 — 2026-04-15
+- F010 진행 8: Session 5 기록 + E2E 검증 스크립트 + exchangeAuthCode 엔드포인트
+  - Session 5 7개 커밋 내용을 progress에 역추적 기록 (위 블록)
+
+  - scripts/verify-e2e.mjs 신규 — NodeMatcherBatch E2E 검증 도구:
+    - .env 로드 (dotenv 없이 직접 파싱) → Firebase Web SDK 초기화 → 'roadguard'
+      named DB 바인딩
+    - --seed=강남-판교 / 서울시청-성남 / 잠실-강남 프리셋으로 users/{id} 생성 가능
+    - POST https://asia-northeast3-{projectId}.cloudfunctions.net/nodeMatcherBatch
+      호출 후 HTTP 상태 + body + latency 로깅
+    - routes/{userId} 재조회 → polyline/districts/cctvNodes 검증
+    - Fail conditions: polyline empty / === 'MOCK' / districts 0 / cctvNodes 0
+      → 각각 exit code 2~4로 구분
+    - package.json에 `npm run verify:e2e` 스크립트 등록
+    - node --check 구문 통과 확인
+    - ITS API 키 활성화 후 실 경로로 회귀 테스트 가능한 상태
+      (실행 명령: npm run verify:e2e -- --seed=강남-판교)
+
+  - functions/src/exchangeAuthCode.ts 신규 — Toss OAuth → 앱 JWT 교환:
+    - onRequest, asia-northeast3, cors:true, invoker:'public'
+    - secrets: APP_JWT_SECRET (필수), TOSS_CLIENT_ID + TOSS_CLIENT_SECRET (선택)
+    - Body: { authorizationCode, referrer? }
+    - Toss mTLS 미연결 상태: TOSS_CLIENT_* 없으면 mock 모드로 degrade,
+      authorizationCode sha256 앞 24자로 deterministic userKey 생성
+      (실 서비스 전 console에 client cert 등록 후 https.Agent 연결 필요 — TODO)
+    - referrer === 'UNLINK'|'WITHDRAWAL_*' 처리: Firestore users/{userKey}에
+      unlinkedAt + unlinkReason 기록, 빈 token 반환으로 재로그인 유도
+    - 정상 경로: users/{userKey} upsert (lastLoginAt + sessionNonce 8바이트) →
+      HS256 JWT 발급 (node:crypto HMAC, 30일 TTL, payload: {sub, mode, iat, exp})
+    - Toss OAuth 토큰은 서버 외부로 반환하지 않음 (CLAUDE.md "토큰 클라 노출 금지"
+      규칙 준수)
+    - functions/src/index.ts에 export 추가
+    - functions/package.json: axios는 이미 의존성 존재 → 추가 dep 없이 구현
+
+  - src/business/services/authService.ts 재작성 — 교환 플로우 통합:
+    - LoginResult에 token 필드 추가 → { success, userKey, token }
+    - 실 SDK 경로: appLogin() → { authorizationCode, referrer } 수신 →
+      exchangeAuthCode POST → 서버 응답의 token + userKey 사용
+    - 기존 authService는 `appLogin()`이 userKey를 직접 반환한다고 가정했으나
+      SDK 2.x 실제 반환은 { authorizationCode, referrer } — 잠재 버그도 함께 수정
+    - 웹 환경 (isWebEnvironment): 먼저 Cloud Function 호출 시도, 실패 시
+      client-only mock(MOCK_USER_KEY)으로 degrade — 서버 미배포 dev에서도 동작
+    - JWT_STORAGE_KEY ('roadguard:auth:token') localStorage 영속화 +
+      getStoredToken / clearStoredToken 헬퍼 export (후속 API 호출에서 Authorization
+      헤더로 활용 가능)
+    - registerUnlinkCallback: SDK 콜백 래핑하여 unlink 시 clearStoredToken()
+      자동 호출 후 기존 onUnlink 실행
+    - exchange.unlinked === true 응답 받으면 success=false + token 비움 →
+      IntroView는 자연스럽게 재로그인 화면으로 복귀
+
+  - 빌드 검증:
+    - functions: tsc (firebase-functions v7, Node 22) green
+    - client: vite 6.4.1 build green (1924 modules, 899.11KB, gzip 267.32KB)
+    - pre-existing 500KB+ chunk warning은 본 작업과 무관
+
+  - 배포 전 필요 작업 (secrets 등록):
+    - firebase functions:secrets:set APP_JWT_SECRET (랜덤 32바이트 권장)
+    - firebase functions:secrets:set TOSS_CLIENT_ID (콘솔에서 발급)
+    - firebase functions:secrets:set TOSS_CLIENT_SECRET (콘솔에서 발급)
+    - TOSS_CLIENT_* 미등록 상태에서는 mock 모드로 동작하므로 배포 자체는 가능
+
 - 향후 남은 작업 (우선순위 순):
-  - 실 경로로 NodeMatcherBatch E2E 테스트 (Firestore routes.cctvNodes 확인)
+  - 실 경로로 NodeMatcherBatch E2E 테스트 (ITS 키 활성화 후 npm run verify:e2e 실행)
   - 앱인토스 콘솔: 기능 스킴 URL 등록 + 랜딩 렌더링 확인 (콘솔 + 실기기)
   - 앱인토스 콘솔: 로고 600×600 각진 정사각형 PNG 업로드 (별도 준비 필요)
   - 실기기: 최초 화면 백버튼 누르면 미니앱 종료되는지 확인
-  - 실서비스 전: Cloud Functions exchangeAuthCode 서버 JWT 교환 엔드포인트
+  - 실서비스 전: exchangeAuthCode에 Toss mTLS client cert 연결 (https.Agent + cert/key)
+  - 실서비스 전: exchangeAuthCode 배포 + APP_JWT_SECRET secrets 등록
