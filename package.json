@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify:e2e": "node scripts/verify-e2e.mjs"
   },
   "dependencies": {
     "@apps-in-toss/web-framework": "^2.0.1",
