@@ -399,7 +399,13 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
               }
             }
 
-            if (routeData && routeData.cctvNodes.length > 0) {
+            // The MVP scope dropped ITS CCTVs (the agency's egress
+            // firewall blocked every cloud serverless attempt), so
+            // routeData will routinely have cctvNodes: [] but still
+            // carry real polyline + districts. Accept that as a valid
+            // real route — the empty-cctv → MOCK fallback used to live
+            // here but would now turn every real user back into mock.
+            if (routeData) {
               setRoute(routeData);
               // Clear any mock-era alerts so evaluateHazards runs against
               // the real districts we just loaded.
@@ -410,18 +416,16 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
             }
           } catch (err) {
             console.error('[MapView] Route fetch failed:', err);
-            setApiStatus('cctv', 'degraded');
           }
         }
 
         if (cancelled) return;
 
-        // Soft fallback: if we still have no real route (Cloud Function
-        // failed, ITS returned no CCTVs on this bounding box, or we're
-        // cold-starting), fall back to MOCK so the user at least sees a
-        // working map. The degraded banner tells them ITS data is
-        // unavailable. This is much better UX than a blocking error.
-        if (!routeData || routeData.cctvNodes.length === 0) {
+        // Soft fallback: only when we have NO route at all (Cloud
+        // Function failure, cold start before first write, etc.). Empty
+        // cctvNodes is now the normal path — MVP intentionally shows
+        // district-level weather hazards without per-CCTV markers.
+        if (!routeData) {
           console.warn(
             '[MapView] No real route available, falling back to MOCK_ROUTE',
           );
@@ -431,7 +435,6 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
             setWeatherAlerts(MOCK_WEATHER_ALERTS);
             setHazardNodes(MOCK_HAZARD_NODES);
           }
-          setApiStatus('cctv', 'degraded');
         }
 
         // Step 3: Evaluate hazards (only if real Firestore data exists)

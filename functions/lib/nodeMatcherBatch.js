@@ -173,7 +173,7 @@ exports.nodeMatcherBatch = (0, https_1.onRequest)({
     region: 'asia-northeast3',
     timeoutSeconds: 300,
     memory: '512MiB',
-    secrets: ['KAKAO_REST_KEY', 'ITS_API_KEY'],
+    secrets: ['KAKAO_REST_KEY'],
     cors: true,
     invoker: 'public',
 }, async (req, res) => {
@@ -190,12 +190,8 @@ exports.nodeMatcherBatch = (0, https_1.onRequest)({
             throw new NodeMatcherError('invalid-argument', 'userId is required');
         }
         const KAKAO_KEY = process.env.KAKAO_REST_KEY;
-        const ITS_KEY = process.env.ITS_API_KEY;
         if (!KAKAO_KEY) {
             throw new NodeMatcherError('failed-precondition', 'KAKAO_REST_KEY is not configured');
-        }
-        if (!ITS_KEY) {
-            throw new NodeMatcherError('failed-precondition', 'ITS_API_KEY is not configured');
         }
         // -----------------------------------------------------------------------
         // 1. Read user document
@@ -282,88 +278,20 @@ exports.nodeMatcherBatch = (0, https_1.onRequest)({
         }
         const districts = Array.from(districtSet);
         // -----------------------------------------------------------------------
-        // 5. Find nearby CCTVs via ITS API
+        // 5. CCTV integration intentionally omitted.
         // -----------------------------------------------------------------------
-        // Compute bounding box from route points
-        let minLat = Infinity;
-        let maxLat = -Infinity;
-        let minLng = Infinity;
-        let maxLng = -Infinity;
-        for (const pt of routePoints) {
-            if (pt.lat < minLat)
-                minLat = pt.lat;
-            if (pt.lat > maxLat)
-                maxLat = pt.lat;
-            if (pt.lng < minLng)
-                minLng = pt.lng;
-            if (pt.lng > maxLng)
-                maxLng = pt.lng;
-        }
-        // Add a small margin (~500m)
-        const margin = 0.005;
-        minLat -= margin;
-        maxLat += margin;
-        minLng -= margin;
-        maxLng += margin;
-        // ITS API returns CCTVs filtered by road type. We query BOTH 'its'
-        // (국도) AND 'ex' (고속도로) and merge the results, otherwise commute
-        // routes that run primarily on highways (e.g. 강남→판교 via 경부고속도로)
-        // return an empty cctvNodes list.
-        const seenCctvIds = new Set();
-        let cctvNodes = [];
-        const fetchCctvs = async (roadType) => {
-            const res = await retryWithBackoff(() => axios_1.default.get('https://openapi.its.go.kr:9443/cctvInfo', {
-                params: {
-                    apiKey: ITS_KEY,
-                    type: roadType,
-                    cctvType: 3, // 1: HLS, 2: mp4, 3: 정지영상(스냅샷), 4: HLS(HTTPS), 5: mp4(HTTPS)
-                    minX: minLng,
-                    maxX: maxLng,
-                    minY: minLat,
-                    maxY: maxLat,
-                    getType: 'json',
-                },
-                // ITS API (openapi.its.go.kr:9443) responds in <1s from a local
-                // curl but routinely takes 15-30s when called from GCP's
-                // asia-northeast3 egress — the public-agency TLS stack appears
-                // to rate-limit or slow-start non-domestic IPs. 15s was too
-                // tight and every E2E attempt timed out with ECONNABORTED.
-                // 30s still leaves budget: worst-case 30s × 3 retries × 2 road
-                // types = 180s, well under the 300s function deadline.
-                timeout: 30000,
-            }));
-            const data = res.data;
-            // ITS JSON response structure: { response: { data: [...] } }
-            const items = data?.response?.data ?? data?.data ?? [];
-            return items.map((item) => ({
-                id: String(item.cctvid ?? item.id ?? ''),
-                lat: Number(item.coordy ?? item.lat ?? 0),
-                lng: Number(item.coordx ?? item.lng ?? 0),
-                name: String(item.cctvname ?? item.name ?? ''),
-                cctvurl: String(item.cctvurl ?? ''),
-            }));
-        };
-        for (const roadType of ['its', 'ex']) {
-            try {
-                const nodes = await fetchCctvs(roadType);
-                for (const node of nodes) {
-                    // Dedup across both queries; fall back to a coord-based key if
-                    // ITS omits the cctvid so we still avoid exact duplicates.
-                    const key = node.id && node.id !== 'undefined'
-                        ? node.id
-                        : `${node.lat.toFixed(5)},${node.lng.toFixed(5)}`;
-                    if (seenCctvIds.has(key))
-                        continue;
-                    seenCctvIds.add(key);
-                    cctvNodes.push(node);
-                }
-            }
-            catch (err) {
-                console.warn(`[NodeMatcher] ITS CCTV API (${roadType}) failed:`, err);
-                // Continue with whatever we have; the other road type may still work
-            }
-        }
-        console.log(`[NodeMatcher] CCTVs fetched: ${cctvNodes.length} (bbox: ${minLng},${minLat} → ${maxLng},${maxLat})`);
+        // ITS (openapi.its.go.kr:9443) responds fine to local curl but TCP/TLS
+        // handshakes from both GCP asia-northeast3 and Vercel icn1 egress IPs
+        // are dropped by the agency's network (10-30s ECONNABORTED / "fetch
+        // failed"). The documented workaround is a static egress IP that is
+        // registered on the ITS console — out of scope for this release.
+        //
+        // MVP focuses on weather-alert delivery (KMA, which is reachable), so
+        // we persist an empty cctvNodes array and let the client render a
+        // district-level hazard banner instead of per-CCTV markers. Adding the
+        // ITS section back is a purely local change — shape of routes/<id>
+        // already carries cctvNodes: [].
+        const cctvNodes = [];
         // -----------------------------------------------------------------------
         // 6. Save to Firestore
         // -----------------------------------------------------------------------

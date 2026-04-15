@@ -187,14 +187,18 @@ async function main() {
   if (polyline.length === 0) failures.push('polyline empty');
   if (polyline === 'MOCK') failures.push('polyline is MOCK — fell back to mock data');
   if (districts.length === 0) failures.push('districts empty — reverse geocode failed');
-  if (cctvNodes.length === 0) failures.push('cctvNodes empty — ITS CCTV query returned nothing');
+  // cctvNodes is intentionally empty in the current build — the ITS CCTV
+  // integration was dropped after both GCP and Vercel egress IPs were
+  // blocked by the agency's firewall. If that ever changes, bring the
+  // check back.
+  void cctvNodes;
 
   if (failures.length > 0) {
     console.error(`\n❌ FAIL: ${failures.join('; ')}`);
     process.exit(4);
   }
 
-  console.log('\n✅ PASS — real Kakao + ITS data reached Firestore');
+  console.log('\n✅ PASS — real Kakao + district data reached Firestore');
 }
 
 main().catch((err) => {
