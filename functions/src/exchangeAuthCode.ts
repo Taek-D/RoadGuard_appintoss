@@ -143,7 +143,12 @@ export const exchangeAuthCode = onRequest(
     memory: '256MiB',
     cors: true,
     invoker: 'public',
-    secrets: ['APP_JWT_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET'],
+    // Only APP_JWT_SECRET is declared here because TOSS_CLIENT_ID and
+    // TOSS_CLIENT_SECRET are not yet provisioned (mTLS integration is a
+    // pre-production task). Firebase rejects the whole deploy if it
+    // can't validate every listed secret, so we add those back to this
+    // array at the same time we register them in Secret Manager.
+    secrets: ['APP_JWT_SECRET'],
   },
   async (req, res) => {
     try {
