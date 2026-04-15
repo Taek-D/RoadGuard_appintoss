@@ -495,6 +495,7 @@ const RealMapView = ({ onSdkFail }: { onSdkFail: () => void }) => {
           map={kakaoMap}
           encodedPolyline={route.polyline}
           hazardAlerts={weatherAlerts}
+          districts={route.districts}
         />
       )}
 
